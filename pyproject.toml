@@ -4,15 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snowrunner-telemetry-api"
-version = "0.0.0"
+version = "0.1.0"
 description = "API de adquisición de telemetría SnowRunner (separada del mod realista)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    # Fase 1 — descomentar al implementar:
-    # "fastapi>=0.115",
-    # "uvicorn[standard]>=0.32",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
 ]
+
+[project.scripts]
+snowrunner-telemetry-api = "snowrunner_telemetry_api.__main__:main"
 
 [project.optional-dependencies]
 dev = [

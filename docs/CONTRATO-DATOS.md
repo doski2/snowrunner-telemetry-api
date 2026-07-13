@@ -8,10 +8,10 @@ Este documento fija **qué debe enviar la API** para que `snowrunner real` pueda
 
 ## Versiones de esquema
 
-| `schema_version` | Estado | Notas |
-|------------------|--------|-------|
-| `ce_sample_v1` | propuesto | Una muestra Havok normalizada |
-| `ce_session_v1` | propuesto | Sesión completa compatible con `TelemetrySession` |
+| `schema_version` | Estado    | Notas                                             |
+|------------------|-----------|---------------------------------------------------|
+| `ce_sample_v1`   | propuesto | Una muestra Havok normalizada                     |
+| `ce_session_v1`  | propuesto | Sesión completa compatible con `TelemetrySession` |
 
 Cada payload JSON incluye `"schema_version": "ce_sample_v1"`.
 
@@ -23,40 +23,40 @@ Alineada con `memoria_havok.CSV_HEADER` y enriquecimiento `enrich_drive_fields`.
 
 ### Campos obligatorios
 
-| Campo | Tipo | Ejemplo | Uso en principal |
-|-------|------|---------|------------------|
-| `t_s` | float | `12.34` | Tiempo sesión |
-| `speed_kmh` | float | `28.5` | MAE, tramos |
-| `vehicle_id` | string | `s_krs_58_bandit` | `registry.vehicle_id_from_ce` |
-| `terrain_kind` | string | `hard` / `mud` / `mixed` | Segmentación compare |
-| `chain` | string | `TRUCK_CONTROL` | Diagnóstico |
+| Campo          | Tipo   | Ejemplo                  | Uso en principal              |
+|----------------|--------|--------------------------|-------------------------------|
+| `t_s`          | float  | `12.34`                  | Tiempo sesión                 |
+| `speed_kmh`    | float  | `28.5`                   | MAE, tramos                   |
+| `vehicle_id`   | string | `s_krs_58_bandit`        | `registry.vehicle_id_from_ce` |
+| `terrain_kind` | string | `hard` / `mud` / `mixed` | Segmentación compare          |
+| `chain`        | string | `TRUCK_CONTROL`          | Diagnóstico                   |
 
 ### Campos recomendados (terreno / carga)
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| `wheel_grip` | float | |
-| `surface_avg` | float | |
-| `contact_avg` | float | |
-| `mud_grade` | int | |
-| `mud_grade_label` | string | |
-| `load_hint` | string | `vacio` / `cargado` |
-| `total_mass_kg` | float | Havok |
-| `payload_kg` | float | |
-| `map_name` | string | |
-| `level_id` | string | |
+| Campo             | Tipo   | Notas               |
+|-------------------|--------|---------------------|
+| `wheel_grip`      | float  |                     |
+| `surface_avg`     | float  |                     |
+| `contact_avg`     | float  |                     |
+| `mud_grade`       | int    |                     |
+| `mud_grade_label` | string |                     |
+| `load_hint`       | string | `vacio` / `cargado` |
+| `total_mass_kg`   | float  | Havok               |
+| `payload_kg`      | float  |                     |
+| `map_name`        | string |                     |
+| `level_id`        | string |                     |
 
 ### Campos drive (gas / motor)
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| `throttle_input` | float 0..1 | **Input jugador** (TRUCK_CONTROL) |
-| `throttle_motor` | float 0..1 | Demanda motor (`vehicle+760`) |
-| `throttle` | float | Legacy = `throttle_input` o fallback motor |
-| `engine_rpm` | float | |
-| `throttle_input_src` | string | `per_vehicle` / `auto_probe` / `global` |
-| `throttle_input_base` | string | ej. `tc+0F8` |
-| `throttle_input_offset` | string | ej. `+0x0C8` |
+| Campo                   | Tipo       | Notas                                      |
+|-------------------------|------------|--------------------------------------------|
+| `throttle_input`        | float 0..1 | **Input jugador** (TRUCK_CONTROL)          |
+| `throttle_motor`        | float 0..1 | Demanda motor (`vehicle+760`)              |
+| `throttle`              | float      | Legacy = `throttle_input` o fallback motor |
+| `engine_rpm`            | float      |                                            |
+| `throttle_input_src`    | string     | `per_vehicle` / `auto_probe` / `global`    |
+| `throttle_input_base`   | string     | ej. `tc+0F8`                               |
+| `throttle_input_offset` | string     | ej. `+0x0C8`                               |
 
 **Regla:** la API no debe emitir solo `throttle` sin `throttle_input` cuando el resolver tenga spec válido.
 
@@ -98,24 +98,24 @@ class TelemetrySession:
 
 ### `meta` mínimo
 
-| Campo | Obligatorio |
-|-------|-------------|
-| `vehicle_id` | sí (mod id: `bandit`, `ck1500`) |
-| `protocol_id` | recomendado |
-| `map_name` | sí |
-| `duration_s` | sí |
+| Campo             | Obligatorio                         |
+|-------------------|-------------------------------------|
+| `vehicle_id`      | sí (mod id: `bandit`, `ck1500`)     |
+| `protocol_id`     | recomendado                         |
+| `map_name`        | sí                                  |
+| `duration_s`      | sí                                  |
 | `session_context` | sí (ver `datos/session_context.py`) |
 
 ### `session_context` obligatorio
 
-| Campo | Ejemplo |
-|-------|---------|
-| `build_juego` | Steam jun-2026 |
-| `mod_commit` | git hash |
-| `map` | Black River |
-| `location_note` | partida libre |
-| `baseline_tag` | play_free_v1 |
-| `capture_tool` | `snowrunner-telemetry-api/0.1` |
+| Campo           | Ejemplo                        |
+|-----------------|--------------------------------|
+| `build_juego`   | Steam jun-2026                 |
+| `mod_commit`    | git hash                       |
+| `map`           | Black River                    |
+| `location_note` | partida libre                  |
+| `baseline_tag`  | play_free_v1                   |
+| `capture_tool`  | `snowrunner-telemetry-api/0.1` |
 
 ### Muestras en sesión
 
@@ -160,14 +160,14 @@ Cada elemento de `samples[]` puede ser:
 
 Desde `camiones/registry.py` (principal):
 
-| `vehicle_id` CE | mod id |
-|-----------------|--------|
-| `s_chevrolet_ck1500` | `ck1500` |
-| `s_krs_58_bandit` | `bandit` |
+| `vehicle_id` CE      | mod id      |
+|----------------------|-------------|
+| `s_chevrolet_ck1500` | `ck1500`    |
+| `s_krs_58_bandit`    | `bandit`    |
 | `s_fleetstar_f2070a` | `fleetstar` |
-| `s_khan_39_marshall` | `marshall` |
-| `s_tatra_t813` | `t813` |
-| `s_gmc_9500` | `mh9500` |
+| `s_khan_39_marshall` | `marshall`  |
+| `s_tatra_t813`       | `t813`      |
+| `s_gmc_9500`         | `mh9500`    |
 
 La API puede incluir `vehicle_mod_id` resuelto para evitar duplicar lógica en el cliente.
 

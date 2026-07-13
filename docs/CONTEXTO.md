@@ -4,7 +4,6 @@
 
 El flujo de telemetría hoy es **monolítico**:
 
-```
 SnowRunner.exe
     → memoria_havok.py (ReadProcessMemory)
     → telemetria_ce_log.csv
@@ -13,7 +12,6 @@ SnowRunner.exe
     → comparar_telemetria.py / indexar_sesion.py
     → datos/indices/calibracion.json
     → sim/core.py + camiones/*/simulador.py
-```
 
 **Fuentes de verdad del contrato de datos** (proyecto principal):
 
@@ -52,12 +50,12 @@ Todo depende de **ingeniería inversa** (offsets, singletons `TRUCK_CONTROL` / `
 
 ## Qué debe hacer la API (alcance)
 
-| Sí | No |
-|----|-----|
-| Exponer **muestras en vivo** (stream o poll) | Aplicar parches `.pak` |
-| Exponer **sesiones** (JSON alineado con `TelemetrySession`) | Calcular MAE / comparar con sim |
-| Informar **estado** (juego detectado, vehículo activo, offsets OK) | Gestionar `datos/catalogo/` |
-| Opcional: archivar CSV/JSON crudo | Sustituir `consultar_base.py` |
+| Sí                                                                 | No                              |
+|--------------------------------------------------------------------|---------------------------------|
+| Exponer **muestras en vivo** (stream o poll)                       | Aplicar parches `.pak`          |
+| Exponer **sesiones** (JSON alineado con `TelemetrySession`)        | Calcular MAE / comparar con sim |
+| Informar **estado** (juego detectado, vehículo activo, offsets OK) | Gestionar `datos/catalogo/`     |
+| Opcional: archivar CSV/JSON crudo                                  | Sustituir `consultar_base.py`   |
 
 ## Qué sigue haciendo el proyecto principal
 
@@ -75,10 +73,8 @@ Todo depende de **ingeniería inversa** (offsets, singletons `TRUCK_CONTROL` / `
 
 ## Enlace entre repos
 
-```
 snowrunner-telemetry-api/     snowrunner real/
   docs/CONTRATO-DATOS.md  ←→  telemetria.py, memoria_havok.CSV_HEADER
   (futuro) OpenAPI          ←→  importar_ce_csv.py (cliente HTTP)
-```
 
 Ver [INVESTIGACION.md](INVESTIGACION.md) para cómo llegar ahí sin implementar demasiado pronto.

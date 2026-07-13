@@ -1,59 +1,78 @@
 # SnowRunner Telemetry API
 
-Proyecto **separado** del mod realista (`snowrunner real`). Su rol es **obtener y exponer datos** del juego; el proyecto principal **calcula, compara y gestiona** (sim, parches, calibración, índices).
+API HTTP de telemetría Havok, separada del mod realista (`snowrunner real`).
 
+**Fase 1:** lee la última fila de `telemetria_ce_log.csv` y expone JSON `ce_sample_v1`.
+
+## Requisitos
+
+- Python 3.11+
+- Windows (CSV en `Documents\My Games\SnowRunner\base\`)
+- `grabar_ce.py` grabando o CSV existente
+
+## Instalación
+
+```powershell
+cd snowrunner-telemetry-api
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
 ```
-┌─────────────────────────────┐         ┌──────────────────────────────┐
-│  snowrunner-telemetry-api   │  HTTP   │      snowrunner real         │
-│  (este repo)                │ ──────► │  (mod + sim + telemetría)    │
-│                             │  JSON   │                              │
-│  · leer memoria / agente    │         │  · importar / comparar MAE   │
-│  · normalizar muestras      │         │  · camiones/, sim/, datos/   │
-│  · sesiones en tránsito     │         │  · apply_mod, calibración    │
-└─────────────────────────────┘         └──────────────────────────────┘
-         ▲
-         │ SnowRunner.exe (Windows, en ejecución)
+
+## Arrancar API
+
+```powershell
+# Opción A — módulo
+python -m snowrunner_telemetry_api
+
+# Opción B — uvicorn directo
+uvicorn snowrunner_telemetry_api.main:app --host 127.0.0.1 --port 8765
 ```
 
-## Por qué existe este proyecto
+Variables opcionales:
 
-Hoy **todo está acoplado** en un solo árbol Python:
+| Variable | Default |
+|----------|---------|
+| `SNOWRUNNER_API_PORT` | `8765` |
+| `SNOWRUNNER_CSV_PATH` | `%USERPROFILE%\Documents\My Games\SnowRunner\base\telemetria_ce_log.csv` |
 
-| Hoy | Problema |
-|-----|----------|
-| `grabar_ce.py` + `memoria_havok.py` leen RAM en el mismo proceso | Solo Windows, juego abierto, permisos CE |
-| CSV en `Documents\My Games\SnowRunner\base\` | Ruta fija, un consumidor, difícil automatizar |
-| `importar_ce_csv.py` asume archivo local | No hay frontera clara adquisición ↔ análisis |
+## Probar con curl
 
-Una **API de telemetría** desacopla:
+```powershell
+curl http://127.0.0.1:8765/v1/health
+curl http://127.0.0.1:8765/v1/status
+curl http://127.0.0.1:8765/v1/sample
+```
 
-1. **Adquisición** — quién lee Havok, cuándo, desde qué máquina.
-2. **Contrato** — muestras y sesiones en JSON estable (mismo esquema que `telemetria.py`).
-3. **Consumo** — el proyecto principal importa por HTTP/archivo sin tocar memoria.
+**Éxito:** `/v1/sample` devuelve `schema_version`, `vehicle_id`, `speed_kmh` coherentes con la última línea del CSV.
 
-## Estado actual
+## Tests
 
-**Fase 0 — Investigación** (documentación; sin endpoints en producción).
+```powershell
+pytest
+```
 
-**Decisión clave:** agente de memoria en **C# nativo** (Win32), API HTTP en **Python FastAPI**. Ver [INVESTIGACION.md](docs/INVESTIGACION.md) §3 G.
+## Documentación
 
 | Documento | Contenido |
 |-----------|-----------|
-| [docs/CONTEXTO.md](docs/CONTEXTO.md) | Necesidad, alcance, qué no hace la API |
-| [docs/INVESTIGACION.md](docs/INVESTIGACION.md) | Alternativas, pasos previos, riesgos |
-| [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) | Diseño propuesto (agente + API) |
-| [docs/CONTRATO-DATOS.md](docs/CONTRATO-DATOS.md) | Campos y formatos alineados con `snowrunner real` |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Orden de trabajo antes del primer `curl` |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Fases del proyecto |
+| [docs/CONTRATO-DATOS.md](docs/CONTRATO-DATOS.md) | Esquema `ce_sample_v1` |
+| [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) | Agente C# + API (Fase 2+) |
 
-## Relación con el proyecto principal
+## Throttle legacy (CSV antiguo)
 
-| Repositorio | Ruta local (referencia) | Responsabilidad |
-|-------------|-------------------------|-----------------|
-| **Este** | `snowrunner-telemetry-api/` | Obtener datos, API, agente opcional |
-| **Principal** | `snowrunner real/` | Simulación, mod `.pak`, MAE, `datos/`, `camiones/` |
+Si falta `throttle_input` en el CSV:
 
-El principal **no debe** duplicar lectura de memoria a largo plazo; debe consumir la API o JSON exportado por este proyecto.
+- Se usa `throttle` como input **solo si** no es `-1` (valor no fiable en grabaciones viejas).
+- `throttle` en la respuesta = `throttle_input` → `throttle_motor` → `throttle` crudo.
 
-## Próximo paso
+Ver `src/snowrunner_telemetry_api/sample.py`.
 
-Leer [docs/INVESTIGACION.md](docs/INVESTIGACION.md) y cerrar decisiones marcadas como **DECISIÓN PENDIENTE** antes de implementar endpoints.
+## Estado
+
+| Fase | Estado |
+|------|--------|
+| 0 — Investigación | ✅ |
+| 1 — API CSV | ✅ |
+| 2 — Agente C# | pendiente |

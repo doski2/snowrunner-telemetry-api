@@ -28,14 +28,14 @@ Objetivo: `curl http://127.0.0.1:8765/v1/sample` devuelve última fila del CSV d
 
 | # | Tarea | Estado |
 |---|-------|--------|
-| 1.1 | `pyproject.toml` + FastAPI + uvicorn | ⬜ |
-| 1.2 | `GET /v1/health` | ⬜ |
-| 1.3 | `GET /v1/status` (csv path, file mtime, game inferido) | ⬜ |
-| 1.4 | `GET /v1/sample` → `ce_sample_v1` | ⬜ |
-| 1.5 | Parser CSV alineado con `CSV_HEADER` actual | ⬜ |
-| 1.6 | Mapeo `throttle` viejo → documentar si falta `throttle_input` | ⬜ |
-| 1.7 | Tests unitarios parser (fixture CSV) | ⬜ |
-| 1.8 | README con comandos `curl` | ⬜ |
+| 1.1 | `pyproject.toml` + FastAPI + uvicorn | ✅ |
+| 1.2 | `GET /v1/health` | ✅ |
+| 1.3 | `GET /v1/status` (csv path, file mtime, game inferido) | ✅ |
+| 1.4 | `GET /v1/sample` → `ce_sample_v1` | ✅ |
+| 1.5 | Parser CSV alineado con `CSV_HEADER` actual | ✅ |
+| 1.6 | Mapeo `throttle` viejo → documentar si falta `throttle_input` | ✅ README + `sample.py` |
+| 1.7 | Tests unitarios parser (fixture CSV) | ✅ |
+| 1.8 | README con comandos `curl` | ✅ |
 
 **Criterio de salida:** prueba manual con `telemetria_ce_log.csv` existente del Bandit.
 
