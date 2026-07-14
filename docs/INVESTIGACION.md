@@ -324,8 +324,6 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 - El principal guarda el JSON en `telemetria/sesiones/` y ejecuta `comparar_telemetria` sin cambios de lógica MAE.
 - Monitor en vivo sigue siendo poll (`GET /v1/sample`); sesión ≠ stream.
 
-**Fase 0 cerrada** en decisiones Q1–Q4. Pendiente solo 0.8 (fixtures).
+**Fase 0 cerrada** en decisiones Q1–Q4. Pendiente solo 0.8 (fixtures JSON). **Fase 1 API CSV** implementada.
 
-Cuando cierres estas decisiones, actualizar [ROADMAP.md](ROADMAP.md) y pasar a Fase 1.
-
-**Ecosistema externo:** ver [INVESTIGACION-ECOSISTEMA.md](INVESTIGACION-ECOSISTEMA.md) (repos, foros, qué reutilizar).
+Ver [RESUMEN.md](RESUMEN.md) · [ROADMAP.md](ROADMAP.md) · [INVESTIGACION-ECOSISTEMA.md](INVESTIGACION-ECOSISTEMA.md)

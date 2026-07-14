@@ -1,13 +1,13 @@
 # Roadmap — hasta la primera prueba de API
 
-Checklist por fases. **No marcar Fase 1 completa** hasta cerrar decisiones en [INVESTIGACION.md](INVESTIGACION.md) §9.
+Checklist por fases. Síntesis global: [RESUMEN.md](RESUMEN.md).
 
 ---
 
-## Fase 0 — Investigación y documentación ✅ en curso
+## Fase 0 — Investigación y documentación ✅
 
 | # | Tarea | Estado |
-|---|-------|--------|
+|---|---|--------|
 | 0.1 | Crear repo/carpeta `snowrunner-telemetry-api` | ✅ |
 | 0.2 | Documentar contexto y necesidad | ✅ [CONTEXTO.md](CONTEXTO.md) |
 | 0.3 | Recopilar alternativas y pasos | ✅ [INVESTIGACION.md](INVESTIGACION.md) |
@@ -18,11 +18,11 @@ Checklist por fases. **No marcar Fase 1 completa** hasta cerrar decisiones en [I
 | 0.8 | Copiar 2–3 fixtures JSON desde `telemetria/sesiones/` | ⬜ |
 | 0.9 | Ecosistema externo (GitHub, foros) | ✅ [INVESTIGACION-ECOSISTEMA.md](INVESTIGACION-ECOSISTEMA.md) |
 
-**Criterio de salida:** decisiones Q1–Q4 tomadas; contrato revisado.
+**Criterio de salida:** decisiones Q1–Q4 tomadas; contrato revisado. Ver [RESUMEN.md](RESUMEN.md).
 
 ---
 
-## Fase 1 — API mínima (modo CSV, sin memoria)
+## Fase 1 — API mínima (modo CSV, sin memoria) ✅
 
 Objetivo: `curl http://127.0.0.1:8765/v1/sample` devuelve última fila del CSV del juego **sin abrir nuevo código CE en el principal**.
 
@@ -37,7 +37,33 @@ Objetivo: `curl http://127.0.0.1:8765/v1/sample` devuelve última fila del CSV d
 | 1.7 | Tests unitarios parser (fixture CSV) | ✅ |
 | 1.8 | README con comandos `curl` | ✅ |
 
-**Criterio de salida:** prueba manual con `telemetria_ce_log.csv` existente del Bandit.
+**Criterio de salida:** prueba manual con `telemetria_ce_log.csv` — ✅ Bandit, 942 filas (jul 2026).
+
+---
+
+## Primera prueba (Fase 1) — ejecutada
+
+```powershell
+cd snowrunner-telemetry-api
+pip install -e ".[dev]"
+python -m snowrunner_telemetry_api
+
+# Otra terminal
+Invoke-RestMethod http://127.0.0.1:8765/v1/health
+Invoke-RestMethod http://127.0.0.1:8765/v1/status
+Invoke-RestMethod http://127.0.0.1:8765/v1/sample
+```
+
+**Éxito:** JSON con `vehicle_id`, `speed_kmh`, `schema_version`; coherente con última línea del CSV.
+
+---
+
+## Qué no hacer antes de Fase 2
+
+- No crear el proyecto C# del agente hasta cerrar 0.8 (fixtures JSON) si se usan en tests de contrato.
+- No cambiar `importar_ce_csv.py` en el principal.
+- No publicar API en LAN sin autenticación.
+- No duplicar `comparar_telemetria` en este repo.
 
 ---
 
@@ -79,28 +105,4 @@ Proyecto: `agent/` → `snowrunner-telemetry-agent` (.NET 8, win-x64).
 
 ---
 
-## Primera prueba definida (Fase 1)
-
-Cuando Fase 1 esté lista:
-
-```powershell
-# Terminal A — API (futuro)
-cd snowrunner-telemetry-api
-uvicorn snowrunner_telemetry_api.main:app --port 8765
-
-# Terminal B — comprobar
-curl http://127.0.0.1:8765/v1/health
-curl http://127.0.0.1:8765/v1/status
-curl http://127.0.0.1:8765/v1/sample
-```
-
-**Éxito:** JSON con `vehicle_id`, `speed_kmh`, `schema_version`; coherente con última línea del CSV en Documents.
-
----
-
-## Qué no hacer antes de Fase 1
-
-- No crear el proyecto C# del agente (Fase 2).
-- No cambiar `importar_ce_csv.py` en el principal.
-- No publicar API en LAN sin autenticación.
-- No duplicar `comparar_telemetria` en este repo.
+Ver también [RESUMEN.md](RESUMEN.md) — síntesis de todo el trabajo realizado.

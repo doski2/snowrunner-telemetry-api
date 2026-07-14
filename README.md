@@ -59,6 +59,9 @@ pytest
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Fases del proyecto |
 | [docs/CONTRATO-DATOS.md](docs/CONTRATO-DATOS.md) | Esquema `ce_sample_v1` |
 | [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) | Agente C# + API (Fase 2+) |
+| [docs/RESUMEN.md](docs/RESUMEN.md) | **Síntesis** de todo lo hecho hasta ahora |
+
+**Repo:** https://github.com/doski2/snowrunner-telemetry-api
 
 ## Throttle legacy (CSV antiguo)
 

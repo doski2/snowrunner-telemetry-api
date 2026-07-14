@@ -7,4 +7,6 @@ Copiar aquí fragmentos anonimizados desde `../snowrunner real/telemetria/sesion
 
 Usar para tests del parser CSV y validación de esquema **sin abrir el juego**.
 
-Ver [docs/CONTRATO-DATOS.md](../docs/CONTRATO-DATOS.md).
+Pendiente (ROADMAP 0.8): copiar fragmentos JSON desde `../snowrunner real/telemetria/sesiones/`.
+
+Ver [docs/CONTRATO-DATOS.md](../docs/CONTRATO-DATOS.md) · [docs/RESUMEN.md](../docs/RESUMEN.md).
