@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>snowrunner-telemetry-agent</AssemblyName>
+    <RootNamespace>SnowrunnerTelemetryAgent</RootNamespace>
+    <Description>SnowRunner telemetry agent — Win32 memory reader (Fase 2)</Description>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

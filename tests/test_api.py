@@ -17,6 +17,15 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+def test_root(client: TestClient) -> None:
+    response = client.get("/")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "SnowRunner Telemetry API"
+    assert body["docs"] == "/docs"
+    assert "/v1/health" in body["endpoints"]["health"]
+
+
 def test_health(client: TestClient) -> None:
     response = client.get("/v1/health")
     assert response.status_code == 200
@@ -55,3 +64,10 @@ def test_sample_csv_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(app)
     response = client.get("/v1/sample")
     assert response.status_code == 404
+
+
+if __name__ == "__main__":
+    import subprocess
+    import sys
+
+    raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-q"]))

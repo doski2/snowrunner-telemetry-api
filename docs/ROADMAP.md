@@ -36,6 +36,7 @@ Objetivo: `curl http://127.0.0.1:8765/v1/sample` devuelve última fila del CSV d
 | 1.6 | Mapeo `throttle` viejo → documentar si falta `throttle_input` | ✅ README + `sample.py` |
 | 1.7 | Tests unitarios parser (fixture CSV) | ✅ |
 | 1.8 | README con comandos `curl` | ✅ |
+| 1.9 | `fase1_comprobar.bat` — checklist antes de Fase 2 | ✅ |
 
 **Criterio de salida:** prueba manual con `telemetria_ce_log.csv` — ✅ Bandit, 942 filas (jul 2026).
 
@@ -73,15 +74,41 @@ Proyecto: `agent/` → `snowrunner-telemetry-agent` (.NET 8, win-x64).
 
 | # | Tarea | Estado |
 |---|-------|--------|
-| 2.0 | Scaffold `agent/SnowrunnerTelemetryAgent.csproj` + P/Invoke kernel32 | ⬜ |
+| 2.0 | Scaffold `agent/SnowrunnerTelemetryAgent.csproj` + P/Invoke kernel32 | ✅ |
 | 2.1 | Spike: `OpenProcess` + `read_active_sample` mínimo (speed, vehicle_id, throttle) | ⬜ |
 | 2.2 | Port lecturas batched Havok (rigid body, ruedas, drive) desde `memoria_havok.py` | ⬜ |
 | 2.3 | Cargar `offsets_referencia.json`; `throttle_resolver` portado | ⬜ |
 | 2.4 | Loop muestreo + `POST /internal/ingest` → API buffer | ⬜ |
 | 2.5 | `GET /v1/status` con `probe_ok`, `agent_version`, `throttle_spec` | ⬜ |
 | 2.6 | Comparar muestra API vs `grabar_ce.py --probe` (ε en speed, vehicle_id, throttle_input) | ⬜ |
+| 2.7 | `offsets_build` + `game_exe_version` (hash o FileVersion) en `/v1/status` | ⬜ |
+| 2.8 | Checklist post-patch documentado + script `post_patch_comprobar` (probe + comparación) | ⬜ |
 
 **Criterio de salida:** agente C# estable a 10 Hz; muestras indistinguibles del Python legacy en campos obligatorios.
+
+### Mantenimiento tras patch del juego (continuo, no bloquea Fase 3)
+
+No es una fase numerada aparte: es **trabajo esporádico** cada vez que Steam actualiza SnowRunner y rompe offsets Havok. La API **no descubre offsets sola** — solo reporta si están bien (`probe_ok`, `offsets_build`). El arreglo vive en `snowrunner real`.
+
+| Tipo | Síntoma | Dónde se arregla |
+|------|---------|------------------|
+| **Patch del juego** | `probe_ok=false`, speed/vehicle_id absurdos, singletons rotos | CE + `offsets_referencia.json` en el principal |
+| **Calibración por camión** | `throttle_input` pegado (~0.42), gas on/off igual | `drive_cal`, `throttle_resolver`, `calibracion.json` |
+
+**Checklist tras un update de Steam** (ejecutar en el proyecto principal; validar desde esta API en Fase 2+):
+
+1. Abrir SnowRunner parado en garaje con un camión conocido (ej. Bandit).
+2. `grabar_ce.py --probe` → si falla, re-encontrar singletons con Cheat Engine.
+3. Actualizar `cheat_engine/offsets_referencia.json` (nuevo `offsets_build`, ej. `ago-2026`).
+4. Re-ejecutar `--probe` hasta `probe_ok` y campos coherentes (speed ≈ 0, `vehicle_id` correcto).
+5. Copiar/sincronizar `offsets_referencia.json` al agente C# (`SNOWRUNNER_OFFSETS_PATH`).
+6. Comparar agente vs legacy: tarea **2.6** (ε en speed, vehicle_id, throttle_input).
+7. Si `throttle_input` mal solo en un camión → calibrar ese vehículo (`drive_cal`), no tocar offsets globales.
+8. `GET /v1/status` debe mostrar `probe_ok: true`, `offsets_build` actualizado, `game_exe_version` distinto al anterior si el `.exe` cambió.
+
+**Herramientas de referencia** (no sustituyen vuestro pipeline): [SnowRunner_Noclip mappings.md](https://github.com/FindMuck/SnowRunner_Noclip/blob/main/mappings.md), [CE_RTTI_Reverse_Lookup](https://github.com/FindMuck/CE_RTTI_Reverse_Lookup). Ver [INVESTIGACION-ECOSISTEMA.md](INVESTIGACION-ECOSISTEMA.md).
+
+**Criterio de “offsets OK”:** `probe_ok=true` en `/v1/status` **y** muestra del agente ≈ `grabar_ce.py --probe` en campos obligatorios.
 
 ---
 

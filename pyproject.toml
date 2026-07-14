@@ -19,7 +19,7 @@ snowrunner-telemetry-api = "snowrunner_telemetry_api.__main__:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "httpx>=0.27",
+    "httpx2>=2.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -27,3 +27,14 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::pytest.PytestAssertRewriteWarning",
+]
+
+[tool.pyright]
+include = ["src", "tests", "scripts"]
+extraPaths = ["src"]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"

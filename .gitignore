@@ -8,3 +8,5 @@ venv/
 dist/
 build/
 data/sessions/*.json
+agent/**/bin/
+agent/**/obj/

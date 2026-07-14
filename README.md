@@ -16,16 +16,25 @@ API HTTP de telemetría Havok, separada del mod realista (`snowrunner real`).
 cd snowrunner-telemetry-api
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -e ".[dev]"
 ```
+
+El repo incluye `.venv` local (gitignored). Cursor debe usar **`.venv\Scripts\python.exe`** como intérprete.
 
 ## Arrancar API
 
 ```powershell
-# Opción A — módulo
+# Recomendado
 python -m snowrunner_telemetry_api
 
-# Opción B — uvicorn directo
+# O doble clic / terminal
+.\run_api.bat
+```
+
+No ejecutes `main.py` a solas (fallan los imports relativos). Si el IDE lanza `main.py`, usa la config **API — snowrunner_telemetry_api** en `.vscode/launch.json`.
+
+```powershell
+# Alternativa uvicorn
 uvicorn snowrunner_telemetry_api.main:app --host 127.0.0.1 --port 8765
 ```
 
@@ -51,6 +60,14 @@ curl http://127.0.0.1:8765/v1/sample
 ```powershell
 pytest
 ```
+
+O todo el checklist Fase 1 en un solo paso:
+
+```powershell
+.\fase1_comprobar.bat
+```
+
+Comprueba: `pip install`, pytest, CSV en Documents, endpoints `/v1/*` y (si el puerto 8765 está libre) una petición HTTP en vivo.
 
 ## Documentación
 
@@ -78,4 +95,15 @@ Ver `src/snowrunner_telemetry_api/sample.py`.
 |------|--------|
 | 0 — Investigación | ✅ |
 | 1 — API CSV | ✅ |
-| 2 — Agente C# | pendiente |
+| 2 — Agente C# | **2.0** scaffold ✅ — ver `agent/` |
+
+Tras un **patch de Steam** que rompa offsets: checklist en [docs/ROADMAP.md](docs/ROADMAP.md#mantenimiento-tras-patch-del-juego-continuo-no-bloquea-fase-3) (tareas 2.7–2.8).
+
+## Agente C# (Fase 2)
+
+```powershell
+.\run_agent.bat
+# o: cd agent && dotnet run
+```
+
+Ver [agent/README.md](agent/README.md).

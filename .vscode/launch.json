@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API — snowrunner_telemetry_api",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "snowrunner_telemetry_api",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Fase 1 — comprobar",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "snowrunner_telemetry_api.fase1_check",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Tests — pytest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q", "tests"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Agent — Fase 2.0",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/agent/bin/Debug/net8.0/snowrunner-telemetry-agent.dll",
+      "cwd": "${workspaceFolder}/agent",
+      "console": "integratedTerminal"
+    }
+  ]
+}
