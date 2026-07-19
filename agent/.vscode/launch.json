@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Agent — una muestra",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "${workspaceFolder}/SnowrunnerTelemetryAgent.csproj",
+        "--no-launch-profile"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Agent — loop",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "${workspaceFolder}/SnowrunnerTelemetryAgent.csproj",
+        "--no-launch-profile",
+        "--",
+        "--loop"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+pendiente:
+eliminar lineas y codigo innecesario
+limpiar la lectura de archivos 
+planear un dashboard gui con historial para ver los cambion en el juego y verificar que son correctos
+ya tenemmos: km/h,Fuel,
+estamos con detectar el terreno 

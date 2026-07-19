@@ -3,7 +3,6 @@ using SnowrunnerTelemetryAgent.Native;
 
 namespace SnowrunnerTelemetryAgent.Memory;
 
-/// <summary>Handle Win32 a un proceso del juego (OpenProcess + lecturas).</summary>
 public sealed class GameProcess : IDisposable
 {
     private readonly nint _handle;
@@ -11,7 +10,6 @@ public sealed class GameProcess : IDisposable
 
     public GameProcess(uint processId)
     {
-        ProcessId = processId;
         _handle = Kernel32.OpenProcess(
             Kernel32.ProcessQueryInformation | Kernel32.ProcessVmRead,
             false,
@@ -23,8 +21,6 @@ public sealed class GameProcess : IDisposable
                 $"OpenProcess failed for PID {processId} (error {Marshal.GetLastWin32Error()}).");
         }
     }
-
-    public uint ProcessId { get; }
 
     public nint Handle
     {
@@ -42,11 +38,7 @@ public sealed class GameProcess : IDisposable
             return;
         }
 
-        if (_handle != nint.Zero)
-        {
-            Kernel32.CloseHandle(_handle);
-        }
-
         _disposed = true;
+        Kernel32.CloseHandle(_handle);
     }
 }

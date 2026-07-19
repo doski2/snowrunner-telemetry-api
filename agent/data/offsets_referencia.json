@@ -1,0 +1,254 @@
+{
+  "source": "scan_singleton.py brute + probe — build Steam 2026-06-25",
+  "game_version": "Steam update jun-2026; initial.pak 28880896 B",
+  "module": "SnowRunner.exe",
+  "singletons": {
+    "TRUCK_CONTROL": "0x2A8EDD8",
+    "TRUCK_CONTROL_note": "SnowRunner.exe+2A8EDD8 -> combine_TRUCK_CONTROL* (antes +2A876A8)",
+    "DRIVE_LOGIC": "0x2A8EDC8",
+    "DRIVE_LOGIC_note": "validado mismo build (antes +2E5DA08 obsoleto)",
+    "UI_FUEL_SINGLETON": "0x2E5BBEC"
+  },
+  "pointer_chain": {
+    "vehicle": "[[SnowRunner.exe+2A8EDD8]+8]",
+    "drive_logic_vehicle": "[[SnowRunner.exe+2A8EDC8]+20]",
+    "rigid_body": "+0x5D0",
+    "fuel_current": "[[[vehicle+48]+052] u16 L consumo]",
+    "fuel_current_pct": "[[[vehicle+48]+130]+4F4] f32 0-1 consumo",
+    "fuel_current_ui": "[[[vehicle+48]+128]+40] f32 repostaje (congela)",
+    "fuel_current_legacy": "[[vehicle+48]+82C]",
+    "fuel_max": "[[vehicle+48]+732]"
+  },
+  "fuel_pointerscan": {
+    "ce_fuel_hud": {
+      "source": "CE pointerscan usuario validado jul-2026 — varios camiones, coincide HUD",
+      "module_offset": "0x2A8EDE0",
+      "offsets": ["0x8", "0x68", "0x30", "0x2B0", "0xA8", "0xD0", "0x5E8"],
+      "field_kind": "f32",
+      "note": "exe+2A8EDE0 (+8 respecto TRUCK_CONTROL 0x2A8EDD8). Cadena CE: +8→+68→+30→+2B0→+A8→+D0→f32+5E8. Validado multi-vehículo vs HUD."
+    },
+    "ce_jul2026": {
+      "source": "CE pointerscan usuario — superseded por ce_fuel_hud",
+      "module_offset": "0x2A5D990",
+      "offsets": ["0x20", "0x140", "0x7A0", "0x8", "0xE8", "0xD0", "0x5E8"],
+      "field_kind": "f32",
+      "note": "Base distinta a TRUCK_CONTROL — no validado vs HUD; fallback si ce_fuel_hud rompe tras patch."
+    }
+  },
+  "vehicle_object": {
+    "internal_id_string": "+0xD10",
+    "internal_id_string_legacy": "+0xCE8",
+    "fleetstar_id_note": "CE lee s_fleetstar_f2070a (no international_fleetstar_f2070a)",
+    "addon_manager": "+0x48",
+    "addon_manager_legacy": "+0x58",
+    "attach_manager": "+0x78",
+    "cargo_manager": "+0x1E8",
+    "main_rigid_body": "+0x5D0",
+    "main_rigid_body_legacy": "+0x5C8",
+    "wheels_array_start": "+0x200",
+    "wheels_array_end": "+0x208",
+    "TRUCK_WHEEL_MODEL_grip": "+0x2FC",
+    "TRUCK_WHEEL_MODEL_surface": "+0x2B4",
+    "TRUCK_WHEEL_MODEL_wheel_type_xml": "+0x140",
+    "TRUCK_WHEEL_MODEL_ui_label": "+0x124",
+    "fuel_liters_f32": "+0x82C",
+    "fuel_liters_u16": "+0x420",
+    "fuel_liters_stale_f32": "+0x718",
+    "fuel_capacity_u16": "+0x732",
+    "fuel_ui_tank_ptr": "+0x128",
+    "fuel_pct_f32": "+0x040",
+    "fuel_ui_tank_ptr_alt": "+0x130",
+    "fuel_pct_f32_alt": "+0x06C",
+    "fuel_pct_f32_alt2": "+0x070",
+    "fuel_liters_u16_live": "+0x052",
+    "fuel_liters_f32_live": "+0x008",
+    "fuel_pct_vehicle_f32": "+0x294",
+    "fuel_liters_vehicle_f32": "+0x728",
+    "fuel_pct_addon_direct_f32": "+0x868",
+    "fuel_consume_tank_ptr": "+0x130",
+    "fuel_consume_pct_f32": "+0x4F4",
+    "fuel_consume_pct_f32_alt": "+0x520",
+    "fuel_consume_tank_ptr_alt": "+0x128",
+    "fuel_consume_pct_f32_alt2": "+0x1F8",
+    "fuel_consume_pct_f32_alt3": "+0x100",
+    "fuel_consume_pct_f32_alt3_note": "falso positivo ~20% — no usar",
+    "fuel_consume_pct_f32_alt4": "+0x05C",
+    "fuel_consume_pct_f32_alt5": "+0x0EC",
+    "fuel_default_capacity_liters": 210,
+    "fuel_note": "HUD vivo jul-2026: ce_fuel_hud pointerscan (exe+2A8EDE0→…→f32+5E8) validado multi-vehículo; fallback addon+868/veh+728 y FuelModeTracker"
+  },
+  "hkpRigidBody": {
+    "position_xyz": [
+      "+0x1A0",
+      "+0x1A4",
+      "+0x1A8"
+    ],
+    "linear_velocity_xyz": [
+      "+0x230",
+      "+0x234",
+      "+0x238"
+    ],
+    "angular_velocity_y": "+0x244"
+  },
+  "terrain_runtime": {
+    "source": "TRUCK_WHEEL_MODEL por rueda — NO lee capas del mapa .pak",
+    "grip_per_wheel": "+0x2FC",
+    "surface_deform": "+0x2B4",
+    "contact_substance": "+0x2EC",
+    "note": "MH9500: +2B4 discrimina. Fleetstar: usar +2EC si +2B4 muy negativo",
+    "kinds": [
+      "hard",
+      "mud",
+      "soft",
+      "mixed"
+    ],
+    "mud_grade": {
+      "0": "dry_hard",
+      "1": "soft_dirt",
+      "2": "mud_light",
+      "3": "mud_deep",
+      "4": "water_ford"
+    },
+    "csv_fields": [
+      "surface_deform_avg",
+      "contact_min",
+      "contact_max",
+      "mud_grade",
+      "mud_grade_label"
+    ],
+    "calibrate": "scan_wheel_substance.py --save <terreno>"
+  },
+  "load_runtime": {
+    "source": "masa Havok motion+0xA4 + masa vacia XML/sim — jun-2026",
+    "rigid_body_motion_ptr": "+0xB8",
+    "motion_inverse_mass": "+0xA4",
+    "formula": "payload_kg = max(0, total_mass - empty_mass_xml - 400) [+ remolque]",
+    "attach_manager": "+0x078",
+    "cargo_manager": "+0x1E8",
+    "addon_physics_vector": [
+      "+0x1E0",
+      "+0x1E8"
+    ],
+    "simulation_island": "rb+0x128 -> bodies+0x60, count+0x68",
+    "hints": [
+      "vacio",
+      "cargado",
+      "trailer_vacio",
+      "trailer_cargado"
+    ],
+    "empty_mass_kg": {
+      "ck1500": 1750,
+      "fleetstar": 6650,
+      "marshall": 1780,
+      "mh9500": 7500
+    },
+    "calibrate": "scan_cargo.py --save <vacio|cargado>"
+  },
+  "wheel_addon_runtime": {
+    "source": "TRUCK_WHEEL_MODEL +0x140 (wheels_*) y +0x124 (AT I / OS I)",
+    "note": "tire_kind CE != meta.tire del protocolo de grabacion",
+    "calibrate": "scan_wheel_addons.py --save <etiqueta>"
+  },
+  "drive_runtime": {
+    "source": "DRIVE_LOGIC singleton + veh addon — calibrar con scan_drive_state.py",
+    "singleton": "SnowRunner.exe+2A8EDC8",
+    "vehicle_ptr": "+0x20",
+    "status": "throttle+rpm calibrados 2026-07-15 veh=s_fleetstar_f2070a",
+    "calibration_snaps": {
+      "gas_off": "cheat_engine/drive_snaps/gas_off.json",
+      "gas_full": "cheat_engine/drive_snaps/gas_full.json",
+      "pedal_sweep": "cheat_engine/drive_snaps/pedal_sweep_latest.json",
+      "note": "from-sweep pedal_sweep_latest.json #1"
+    },
+    "per_vehicle": {
+      "s_krs_58_bandit": {
+        "throttle_input": {
+          "base": "tc+0E8",
+          "offset": "+0x0C8",
+          "kind": "u8",
+          "chain": "TRUCK_CONTROL",
+          "note": "sweep Bandit 2026-07-13"
+        }
+      },
+      "s_chevrolet_ck1500": {
+        "throttle_input": {
+          "base": "tc+0F8",
+          "offset": "+0x0C8",
+          "kind": "u8",
+          "chain": "TRUCK_CONTROL",
+          "note": "probe CK1500 tc+0E8 null; tc+0F8+0xC8"
+        }
+      },
+      "s_fleetstar_f2070a": {
+        "throttle_input": {
+          "base": "tc+1F8",
+          "offset": "+0x5BC",
+          "kind": "f32",
+          "chain": "TRUCK_CONTROL",
+          "note": "pedal_sweep 2026-07-15 span 0-1 mando/teclado"
+        }
+      }
+    },
+    "candidates": {
+      "diff_lock_u8": null,
+      "awd_active_u8": null,
+      "low_gear_u8": null,
+      "throttle_input": {
+        "base": "tc+0E8",
+        "offset": "+0x0C8",
+        "kind": "u8",
+        "chain": "TRUCK_CONTROL",
+        "note": "auto-hunt Bandit span ~1; pedal volante/mando/teclado"
+      },
+      "throttle_f32": {
+        "base": "tc+0E8",
+        "offset": "+0x0C8",
+        "kind": "u8",
+        "chain": "TRUCK_CONTROL",
+        "note": "alias legacy -> throttle_input"
+      },
+      "throttle_motor_f32": {
+        "base": "vehicle",
+        "offset": "+0x760",
+        "kind": "f32",
+        "chain": "TRUCK_CONTROL+8",
+        "note": "demanda motor post-Responsiveness"
+      },
+      "engine_rpm_f32": {
+        "base": "vehicle",
+        "offset": "+0x114",
+        "kind": "f32"
+      }
+    },
+    "discover": {
+      "drive_logic": [
+        "0x0",
+        "0x400"
+      ],
+      "vehicle": [
+        "0x0",
+        "0xC00"
+      ]
+    },
+    "csv_fields": [
+      "diff_lock_live",
+      "awd_live",
+      "low_gear_live",
+      "throttle_input",
+      "throttle_motor",
+      "throttle",
+      "engine_rpm",
+      "fuel_rate_pct_min"
+    ],
+    "calibrate": "grabar_telemetria.bat drive --discover; togglear diff/L; --save diff_off diff_on"
+  },
+  "telemetry": {
+    "speed_kmh_formula": "sqrt(vx^2 + vz^2) * 3.6",
+    "velocity_unit": "m/s"
+  },
+  "legacy": {
+    "TRUCK_CONTROL_jun20": "0x2A876A8",
+    "DRIVE_LOGIC_patch18": "0x2E5DA08",
+    "note": "Obsoleto tras update jun-2026"
+  }
+}

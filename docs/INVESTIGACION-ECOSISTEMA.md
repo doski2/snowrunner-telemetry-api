@@ -30,6 +30,7 @@ Recopilación **antes de Fase 1**. Objetivo: saber qué existe fuera de `snowrun
   - `TRUCK_CONTROL + 0x8` → vehículo activo
   - `hkpRigidBody`, `hkpSimulationIsland`, addons
 - **Documentación:** [`mappings.md`](https://github.com/FindMuck/SnowRunner_Noclip/blob/main/mappings.md) — notas de estructuras y offsets (build Season 8 / patch antiguo).
+- **Combustible (lead):** en `mappings.md` documentan `addon + 0x568` (litros) y `+0x56C`/`+0x570` (capacidad) en build Season 8 — ver [§11 Combustible](#11-combustible--leads-externos-y-validación).
 - **Utilidad para nosotros:**
   - Validar cadenas de punteros al portar el agente C#
   - Comparar offsets cuando un update rompa lectura (ej. ellos `veh+0x5C8` → rigid body; nosotros `OFF_RB = 0x5D0` en build jun-2026 — **no copiar ciegamente**)
@@ -197,7 +198,134 @@ Ninguna conoce SnowRunner; solo abstraen Win32.
 
 ---
 
-## 11. Riesgos detectados en la comunidad
+## 11. Combustible — leads externos y validación
+
+Ningún repo público documenta el patrón **dos familias de campos** (consumo vs repostaje) que estamos viendo en build jun-2026. Lo más cercano es FindMuck; el resto son tablas CE sin estructura.
+
+### 11.1 Lead FindMuck (`mappings.md`, Season 8)
+
+En el addon manager (`veh + 0x58` en Season 8; nosotros `veh + 0x48`):
+
+| Offset (Season 8) | Campo documentado |
+|-------------------|-------------------|
+| `addon + 0x868` | **f32 % HUD** (~0.945 → 199 L en scan jul-2026) |
+| `vehicle + 0x728` | **f32 litros** (~200 L; confirma con +868) |
+| `addon + 0x568` | Combustible actual (Season 8 FindMuck; no visto en scan 199 L) |
+| `addon + 0x56C` | Capacidad máxima |
+| `addon + 0x570` | Capacidad (ruta UI) |
+
+**No copiar offsets** — validar en build actual con `--fuel-scan`. Si `addon+568` sigue vivo, simplificaría mucho `FuelReader` frente a probes `+130→+05C` / `+128→+040`.
+
+### 11.2 Patrón observado (build jun-2026, Fleetstar 210 L)
+
+| Familia | Cuándo vive | Ejemplos | Congela cuando… |
+|---------|-------------|----------|-----------------|
+| **Consumo** | Bajando combustible en marcha | `+130→+05C` f32%, `+128→+0EC` | Repostas |
+| **Repostaje** | Subiendo tras llenar | `+128→+040`, `+130→+06C` | Consumes |
+| **Legacy / mixto** | Inestable | `addon+008` f32 L, `addon+052` u16 | Uno u otro según fase |
+
+El agente C# usa `FuelModeTracker` para alternar consume vs repostaje según qué campo **cambió** en el último poll. Hasta encontrar un offset único (tipo `+0x568` validado), no hay atajo en GitHub.
+
+### 11.3 Checklist de validación (`--fuel-scan` / `--fuel-diff`)
+
+Con SnowRunner abierto, camión en mapa, HUD visible (litros exactos):
+
+**Paso A — baseline a N litros (ej. 171 L)**
+
+```powershell
+.\run_agent.bat --fuel-scan --target-liters=171
+.\run_agent.bat --fuel-debug
+```
+
+Anotar candidatos que coincidan (±12 L o ±3 %): `addon+…`, `addon+128→child+…`, `addon+130→child+…`, `vehicle+…`.
+
+**Paso B — tras repostar a M litros (ej. 208 L)**
+
+```powershell
+.\run_agent.bat --fuel-scan --target-liters=208
+.\run_agent.bat --fuel-debug
+```
+
+Comparar con Paso A:
+
+- Campo que **subió** con repostaje y **no bajó** al consumir antes → candidato **repostaje**.
+- Campo que **bajaba** al conducir y **se congeló** al repostar → candidato **consumo**.
+- Campo que coincide en **ambos** pasos con el HUD → candidato **único** (objetivo).
+
+**Paso C — snapshot jul-2026 ~199 L** *(archivado — superseded por `ce_fuel_hud` §11.5)*
+
+```
+addon+868 f32=0.9452 pct?   → ~198.5 L  (estático al consumir)
+vehicle+728 f32=200.00 L?   → confirma (±4 L)
+```
+
+Útil solo como pista en `--fuel-debug` si la cadena CE rompe; no usar como criterio de cierre.
+
+**Paso D — lead FindMuck `+0x568`** *(no seguir salvo rotura de `ce_fuel_hud`)*
+
+En la salida de `--fuel-scan`, buscar explícitamente:
+
+```
+addon+568 f32=… L?
+```
+
+Si aparece y sigue al HUD en A y B, añadir a `offsets_referencia.json`. Con `ce_fuel_hud` validado, este paso queda en standby.
+
+**Paso E — diff en vivo (opcional)**
+
+```powershell
+.\run_agent.bat --fuel-diff --wait=5000
+```
+
+Conducir o repostar durante la espera; los offsets que cambian en `[fuel-diff]` son los vivos.
+
+**Paso F — cerrar en offsets**
+
+1. Actualizar `agent/data/offsets_referencia.json` (y copia en `snowrunner real/cheat_engine/`).
+2. Probar `.\run_agent.bat --memory-only` y dashboard `--source agent`.
+3. Criterio: `fuel_liters` ±2 L del HUD en consumo **y** tras repostaje; `fuel_source` estable.
+
+### 11.5 CE pointerscan combustible (usuario jul-2026)
+
+**Cadena validada** (varios camiones, coincide HUD):
+
+```
+SnowRunner.exe + 0x2A8EDE0
+  → +0x8 → +0x68 → +0x30 → +0x2B0 → +0xA8 → +0xD0 → f32 +0x5E8
+```
+
+En `offsets_referencia.json` → `fuel_pointerscan.ce_fuel_hud` (prioridad 1). El agente la prueba **antes** que probes addon/veh (`fuel_source` = `ce_fuel_hud` si la cadena resuelve y el f32 encaja como L o %).
+
+| Punto | Detalle |
+|-------|---------|
+| Campo final | `f32` en `+0x5E8` (cerca de `main_rigid_body` +0x5D0 — misma zona Havok) |
+| Base estática `+0x2A8EDE0` | A **+8** de `TRUCK_CONTROL` (`0x2A8EDD8`) — misma región singleton build jun-2026 |
+| Validación | Multi-vehículo jul-2026; valor = HUD en litros |
+| Comprobar | `.\run_agent.bat --fuel-debug` línea `ce_fuel_hud`; conducir + repostar vs HUD |
+
+**Cadena anterior (no validada vs HUD):**
+
+```
+SnowRunner.exe + 0x2A5D990
+  → +0x20 → +0x140 → +0x7A0 → +0x8 → +0xE8 → +0xD0 → f32 +0x5E8
+```
+
+`fuel_pointerscan.ce_jul2026` — base distinta a `TRUCK_CONTROL`; se mantiene como fallback.
+
+Si la cadena rompe tras update Steam: nuevo pointerscan o sustituir `module_offset` manteniendo offsets relativos si la estructura no cambió.
+
+### 11.4 Qué no usar para combustible
+
+| Fuente | Motivo |
+|--------|--------|
+| Tablas CE FearLess / vgtimes | Offsets por versión; escriben memoria; sin documentar consume/repostaje |
+| Save Editor (MrBoxik) | Edita partida, no runtime |
+| XML gearbox `FuelConsumption` | Diseño estático, no HUD en vivo |
+| Offsets MudRunner / Spintires | Motor distinto |
+
+---
+
+## 12. Riesgos detectados en la comunidad
 
 | Riesgo | Fuente | Mitigación nuestra |
 |--------|--------|-------------------|
@@ -209,7 +337,7 @@ Ninguna conoce SnowRunner; solo abstraen Win32.
 
 ---
 
-## 12. Acciones recomendadas (pre-Fase 1)
+## 13. Acciones recomendadas (pre-Fase 1)
 
 | # | Acción | Esfuerzo |
 |---|--------|----------|
@@ -217,10 +345,11 @@ Ninguna conoce SnowRunner; solo abstraen Win32.
 | 2 | Probar CE_RTTI_Reverse_Lookup en SnowRunner: confirmar `TRUCK_CONTROL` | 30 min |
 | 3 | Anotar en `offsets_referencia.json` enlace a repos de referencia | 15 min |
 | 4 | **No** bloquear Fase 1 por el port C# — CSV + API primero | — |
+| 5 | Checklist combustible [§11.3](#113-checklist-de-validación---fuel-scan---fuel-diff) con HUD 171 L y tras repostaje | 30–60 min |
 
 ---
 
-## 13. Enlaces rápidos
+## 14. Enlaces rápidos
 
 ### SnowRunner RE / memoria
 - https://github.com/FindMuck/SnowRunner_Noclip  

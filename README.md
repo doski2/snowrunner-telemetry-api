@@ -17,6 +17,8 @@ cd snowrunner-telemetry-api
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -e ".[dev]"
+# Dashboard GUI (matplotlib)
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -e ".[dashboard]"
 ```
 
 El repo incluye `.venv` local (gitignored). Cursor debe usar **`.venv\Scripts\python.exe`** como intérprete.
@@ -54,6 +56,28 @@ curl http://127.0.0.1:8765/v1/sample
 ```
 
 **Éxito:** `/v1/sample` devuelve `schema_version`, `vehicle_id`, `speed_kmh` coherentes con la última línea del CSV.
+
+## Dashboard (velocidad y combustible)
+
+GUI Python con valores en vivo y histórico opcional (`speed_kmh`, `fuel_pct`).
+
+```powershell
+# Modo auto (default): agente C# si SnowRunner está abierto; si no, API CSV (solo si grabar_ce activo)
+.\run_dashboard.bat
+
+# Solo agente C# (juego abierto en mapa, sin grabar_ce.py)
+.\run_dashboard.bat --source agent
+
+# Solo API CSV (requiere .\run_api.bat + grabar_ce.py)
+.\run_api.bat
+.\run_dashboard.bat --source api
+```
+
+Opciones: `--interval=250 --history=600 --chart=fuel_pct --url=http://127.0.0.1:8765`
+
+En la ventana, desplegable **Gráfico:** Velocidad / Combustible / Ambos (solo con Histórico activo).
+
+Requiere `pip install -e ".[dashboard]"` (matplotlib).
 
 ## Tests
 
@@ -95,15 +119,16 @@ Ver `src/snowrunner_telemetry_api/sample.py`.
 |------|--------|
 | 0 — Investigación | ✅ |
 | 1 — API CSV | ✅ |
-| 2 — Agente C# | **2.0** scaffold ✅ — ver `agent/` |
+| 2 — Agente C# | **2.0** scaffold + **2.1** spike ✅ — ver `agent/` |
 
 Tras un **patch de Steam** que rompa offsets: checklist en [docs/ROADMAP.md](docs/ROADMAP.md#mantenimiento-tras-patch-del-juego-continuo-no-bloquea-fase-3) (tareas 2.7–2.8).
 
-## Agente C# (Fase 2)
+## Agente C# (Fase 2.0 / 2.1)
 
 ```powershell
-.\run_agent.bat
-# o: cd agent && dotnet run
+.\fase2_comprobar.bat    # checklist build + offsets (+ probe si hay juego)
+.\run_agent.bat          # una muestra JSON
+.\run_agent.bat --loop   # poll continuo
 ```
 
-Ver [agent/README.md](agent/README.md).
+Detalle de entregables: [docs/ROADMAP.md](docs/ROADMAP.md#fase-20--scaffold-) y [agent/README.md](agent/README.md).

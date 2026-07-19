@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace SnowrunnerTelemetryAgent.Native;
 
-internal static partial class Psapi
+internal static class Psapi
 {
     public const uint ListModulesAll = 0x03;
 

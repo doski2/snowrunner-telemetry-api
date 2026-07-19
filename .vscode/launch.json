@@ -25,14 +25,6 @@
       "args": ["-q", "tests"],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
-    },
-    {
-      "name": "Agent — Fase 2.0",
-      "type": "coreclr",
-      "request": "launch",
-      "program": "${workspaceFolder}/agent/bin/Debug/net8.0/snowrunner-telemetry-agent.dll",
-      "cwd": "${workspaceFolder}/agent",
-      "console": "integratedTerminal"
     }
   ]
 }

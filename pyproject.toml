@@ -15,11 +15,16 @@ dependencies = [
 
 [project.scripts]
 snowrunner-telemetry-api = "snowrunner_telemetry_api.__main__:main"
+snowrunner-dashboard = "snowrunner_telemetry_api.dashboard.__main__:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "httpx2>=2.0",
+    "matplotlib>=3.8",
+]
+dashboard = [
+    "matplotlib>=3.8",
 ]
 
 [tool.setuptools.packages.find]

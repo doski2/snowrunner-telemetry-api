@@ -10,3 +10,7 @@ build/
 data/sessions/*.json
 agent/**/bin/
 agent/**/obj/
+.agent-build/
+.agent-probe/
+*.PTR
+*.PTR.results.*

@@ -2,6 +2,8 @@
 
 Documento de **recopilación y decisiones**. Objetivo: no escribir endpoints hasta entender alternativas, costes y contrato con `snowrunner real`.
 
+**Estado jul 2026:** Fase **0** y **1** cerradas (API CSV). Fase **2.0** + **2.1** cerradas (agente C# spike). Combustible cerrado (`ce_fuel_hud`). **2.2** pausada (port batched ruedas/terreno). Detalle: [ROADMAP.md](ROADMAP.md).
+
 ---
 
 ## 1. Preguntas que hay que responder
@@ -12,8 +14,10 @@ Documento de **recopilación y decisiones**. Objetivo: no escribir endpoints has
 | Q2 | ¿Stream (push) o poll (pull)? | **✅ Poll** — `GET /v1/sample` / `GET /v1/status`; stream (WS) solo Fase 4 si hace falta |
 | Q3 | ¿Quién lee memoria: agente dedicado o el propio servidor API? | **✅ Agente dedicado nativo** (C#, proceso aparte) — ver §3 G |
 | Q4 | ¿Sesión = archivo JSON completo o solo buffer + POST al cerrar? | **✅ Buffer en API + JSON completo al cerrar** — ver §9 / Flujo B en ARQUITECTURA |
-| Q5 | ¿Versionar esquema (`schema_version` en cada muestra)? | **Recomendado: sí** |
+| Q5 | ¿Versionar esquema (`schema_version` en cada muestra)? | **✅ Sí** — `ce_sample_v1` en `/v1/sample` y muestra del agente |
 | Q6 | ¿Autenticación necesaria en localhost? | **No** en v0; sí si red LAN |
+| Q7 | ¿Offset único de combustible en build jun-2026? | **✅ Sí** — `ce_fuel_hud` (`exe+2A8EDE0→…→f32+5E8`), validado multi-vehículo vs HUD; ver [INVESTIGACION-ECOSISTEMA.md §11.5](INVESTIGACION-ECOSISTEMA.md#115-ce-pointerscan-combustible-usuario-jul-2026) |
+| Q8 | ¿Dashboard sin API (agente directo)? | **✅ Sí (adelanto)** — `run_dashboard.bat --source agent` parsea JSON stdout del exe; `POST /internal/ingest` sigue pendiente (2.4) |
 
 ---
 
@@ -24,6 +28,7 @@ Documento de **recopilación y decisiones**. Objetivo: no escribir endpoints has
 | Componente | Salida | Notas |
 |------------|--------|-------|
 | `grabar_ce.py` + `memoria_havok.py` | CSV ~50 columnas | Principal, Python |
+| `snowrunner-telemetry-agent` (C#) | JSON stdout (`--loop`) | Fase 2.1; memoria Havok + volante WinMM |
 | `TelemetryLogger.lua` | Mismo CSV | Legacy CE |
 | `grabar_telemetria.bat` | CSV + import automático | Orquestador |
 
@@ -43,6 +48,8 @@ Documento de **recopilación y decisiones**. Objetivo: no escribir endpoints has
 | `indexar_sesion.py` | MAE → `calibracion.json` |
 | `consultar_base.py` | manifest + sesiones |
 | `camiones/*/simulador.py` | meta protocolo |
+| API FastAPI (`GET /v1/sample`) | CSV o buffer futuro |
+| Dashboard GUI (`run_dashboard.bat`) | Agente stdout **o** API CSV |
 
 ### Punto de fricción conocido
 
@@ -145,7 +152,7 @@ Un solo proceso: lector + FastAPI en `snowrunner real/api/`.
 
 ### G. Agente nativo Windows (C#) — **DECISIÓN ADOPTADA** para Fase 2
 
-Proceso aparte que usa **Win32 directo** (`OpenProcess`, `ReadProcessMemory`, `VirtualQueryEx`) y empuja muestras al API server Python.
+Proceso aparte que usa **Win32 directo** (`OpenProcess`, `ReadProcessMemory`; `VirtualQueryEx` previsto en Fase 2.2) y empuja muestras al API server Python.
 
 ```
 SnowRunner.exe
@@ -160,7 +167,7 @@ SnowRunner.exe
 |------|---------|
 | Máximo control y rendimiento en lectura RAM | Portar lógica desde `memoria_havok.py` (~2200 líneas) |
 | Lecturas **batched** (un bloque por `hkpRigidBody` / rueda) | Dos runtimes: .NET + Python |
-| `VirtualQueryEx` para cache de regiones válidas | Offsets hay que mantener en C# *y* validar vs Python legacy |
+| `VirtualQueryEx` para cache de regiones válidas (**Fase 2.2**, aún no en agente) | Offsets hay que mantener en C# *y* validar vs Python legacy |
 | `.exe` sin intérprete; crash del lector no tumba la API | Curva inicial mayor que portar Python tal cual |
 | Escala a 20–50 Hz sin GIL ni overhead ctypes | |
 
@@ -176,13 +183,175 @@ SnowRunner.exe
 
 ---
 
+### H. Script o mod que exponga / envíe datos — **¿es posible?**
+
+SnowRunner **no ofrece** API de telemetría (ni UDP, ni shared memory, ni callbacks de mod). Cualquier solución es **ingeniería inversa** o herramienta **externa** al proceso del juego. Detalle ampliado en [INVESTIGACION-ECOSISTEMA.md](INVESTIGACION-ECOSISTEMA.md) §1–2.
+
+#### H.1 Mod `.pak` oficial (contenido Saber)
+
+Los mods publicables según [expeditions-guides.saber.games](https://expeditions-guides.saber.games/) limitan el alcance a **datos estáticos**: XML de camiones, addons, física de diseño, texturas, etc.
+
+| ¿Puede un `.pak` enviar telemetría? | **No** en la práctica |
+|-------------------------------------|------------------------|
+| Scripting en runtime (Lua/C#) | No documentado; el motor no expone hooks de “cada frame” al modder |
+| Leer velocidad / combustible HUD | Solo vía offsets en memoria, no vía API del juego |
+| Abrir socket HTTP/UDP desde el mod | Requeriría código nativo inyectado, no un `.pak` XML |
+
+**Conclusión:** un mod de contenido sirve para **enriquecer** `meta.setup` (masas, `vehicle_id`), no para sustituir el agente de memoria.
+
+#### H.2 Script Cheat Engine Lua (externo — ya existía)
+
+`TelemetryLogger.lua` en `snowrunner real/cheat_engine/` es el precedente más cercano a un “script que manda datos”: CE **adjunto** al proceso, lee punteros Havok y escribe CSV cada 500 ms.
+
+Esquema equivalente al agente actual:
+
+```lua
+-- Patrón simplificado (legacy TelemetryLogger.lua / FindMuck Noclip)
+local base = getAddress("SnowRunner.exe")
+local tc   = readQword(base + TRUCK_CONTROL_OFF)
+local veh  = readQword(tc + 0x8)
+-- ... rigid body, velocidad, throttle ...
+-- Salida: solo fichero local; CE Lua no tiene HTTP estándar
+io.open(csv_path, "a"):write(line .. "\n")
+```
+
+| Pros | Contras |
+|------|---------|
+| Misma lógica que `memoria_havok.py` | CE abierto, frágil tras patches |
+| Prototipo rápido | Sin `POST` nativo; CSV en Documents |
+| | Mismos offsets que hay que mantener |
+
+**Estado en este repo:** sustituido por `grabar_ce.py` → agente C# → `POST /internal/ingest`. El script CE sigue siendo útil como **referencia de punteros**, no como producto.
+
+#### H.3 DLL inyectada / “plugin” estilo SCS SDK (teórico)
+
+En ETS2/ATS el juego carga un plugin que rellena `Local\SCSTelemetry`. SnowRunner **no tiene** ese contrato. Una DLL comunitaria tendría que:
+
+1. Inyectarse en `SnowRunner.exe` (manual map, `LoadLibrary`, etc.).
+2. Hookear el loop de simulación o leer Havok cada tick.
+3. Escribir shared memory o enviar UDP/HTTP.
+
+Bosquejo (no existe proyecto mantenido para SnowRunner):
+
+```csharp
+// Hipotético — NO hay SDK Saber; offsets por build
+[DllExport] static void TelemetryTick() {
+    var liters = ReadFuel(vehiclePtr);      // mismos offsets que FuelReader.cs
+    var speed  = ReadSpeed(rigidBodyPtr);
+    // Opción A: shared memory (patrón SCS)
+    Marshal.StructureToPtr(sample, mmap, false);
+    // Opción B: socket (más frágil dentro del proceso del juego)
+    // udp.Send(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(sample)));
+}
+```
+
+| Pros | Contras |
+|------|---------|
+| Latencia mínima dentro del proceso | **Riesgo** anti-cheat / integridad / EULA |
+| Podría imitar SimHub | Cero repos estables en GitHub para SR |
+| | Cada patch Steam puede romper hooks |
+| | Más difícil de depurar que proceso externo |
+
+**Decisión:** no perseguir DLL inyectada; el **agente C# externo** (§3 G) obtiene los mismos datos con `ReadProcessMemory` sin modificar el ejecutable.
+
+#### H.4 Frida / trainer (spike de descubrimiento)
+
+[tickelton/frida-snowrunner-trainer.py](https://github.com/tickelton/misc.re/blob/master/frida-snowrunner-trainer.py) escanea memoria para dinero/XP. Patrón útil para **buscar** offsets, no para producción de telemetría estructurada (vehículo, ruedas, terreno).
+
+#### H.5 Lo que sí hace nuestro stack (recomendado)
+
+El “script/mod que manda datos” en la arquitectura adoptada es el **agente nativo + API**, no un `.pak`.
+
+**Flujo objetivo (Fase 2.4+):**
+
+```
+SnowRunner.exe  (sin modificar)
+       ↑ ReadProcessMemory (externo)
+snowrunner-telemetry-agent.exe
+       │ POST /internal/ingest  ← pendiente 2.4
+       ▼
+FastAPI 127.0.0.1:8765  →  GET /v1/sample  →  snowrunner real
+```
+
+**Flujo actual (jul 2026, sin ingest):**
+
+```
+SnowRunner.exe
+       ↑ ReadProcessMemory
+snowrunner-telemetry-agent.exe  --loop-->  JSON stdout
+       │                                      │
+       │ (2.4 pendiente)                      ├─ run_dashboard.bat --source agent
+       ▼                                      └─ run_agent.bat (diagnóstico)
+FastAPI  ← CSV telemetria_ce_log.csv  ← grabar_ce.py
+       │
+       └─ run_dashboard.bat --source api
+```
+
+Cuerpo mínimo que el agente ya empujará (contrato `ce_sample_v1`):
+
+```json
+{
+  "schema_version": "ce_sample_v1",
+  "vehicle_id": "s_fleetstar_f2070a",
+  "speed_kmh": 12.4,
+  "fuel_pct": 93.3,
+  "fuel_liters": 196.0,
+  "throttle_input": "0.42",
+  "throttle_motor": "0.38",
+  "probe_ok": true
+}
+```
+
+Cliente de prueba sin mod:
+
+```powershell
+curl http://127.0.0.1:8765/v1/sample
+.\run_dashboard.bat --source agent
+```
+
+#### H.6 Tabla resumen — ¿qué camino usar?
+
+| Enfoque | ¿Envía datos en vivo? | ¿Mantenible? | Veredicto |
+|---------|------------------------|--------------|-----------|
+| Mod `.pak` XML | No | Alta para contenido | Solo datos estáticos |
+| CE Lua (`TelemetryLogger`) | Sí → CSV | Media | Legacy / referencia |
+| Agente C# externo | Sí → HTTP | Media (offsets) | **Adoptado** (Fase 2) |
+| DLL inyectada | Sí (teórico) | Baja | Descartado |
+| Frida | Parcial | Baja | Solo investigación |
+| API oficial Saber | — | — | **No existe** |
+
+**Respuesta corta:** sí es posible **mandar datos**, pero no con un mod de contenido normal; hace falta un **proceso o script externo** (o inyección avanzada). Este proyecto implementa la vía externa más segura y alineada con SimHub/SCS como diseño objetivo ([INVESTIGACION-ECOSISTEMA.md](INVESTIGACION-ECOSISTEMA.md) §6).
+
+#### H.7 CLI del agente (`agent/Program*.cs`, Fase 2.1)
+
+Punto de entrada: `Program.cs` (muestra JSON + flags de entrada). Sesión compartida en `Program.Session.cs` (`GameSession`: offsets, PID, módulo, `read_active_sample`). Diagnóstico combustible en `Program.FuelScan.cs` y `Program.FuelDiff.cs`.
+
+| Comando | Efecto |
+|---------|--------|
+| `.\run_agent.bat` | Una muestra JSON (`vehicle_id`, `speed_kmh`, `fuel_*`, throttle) |
+| `.\run_agent.bat --loop --interval=500` | Poll continuo (stdout JSON compacto) |
+| `.\run_agent.bat --memory-only` | Sin volante; throttle desde Havok |
+| `.\run_agent.bat --fuel-scan --target-liters=171` | Busca offsets que coinciden con litros HUD |
+| `.\run_agent.bat --fuel-diff [--wait=5000]` | Snapshot antes/después; conducir o repostar en la espera |
+| `.\run_agent.bat --fuel-debug` | Probes `FuelReader` + cadena CE `ce_fuel_hud` (prioridad) |
+| `.\run_agent.bat --list-devices` / `--watch-input` | Diagnóstico volante (WinMM → DirectInput → XInput) |
+| `.\run_dashboard.bat --source agent` | GUI en vivo sin API (parsea stdout del agente) |
+
+**Volante:** con SnowRunner abierto, DirectInput suele estar bloqueado; prioridad **WinMM eje RZ** (VelocityOne → `joy0`).
+
+Códigos de salida: `0` OK · `1` juego no en ejecución · `2` offsets/memoria · `3` probe fallido (cadena Havok o muestra incompleta).
+
+Checklist combustible en vivo: [INVESTIGACION-ECOSISTEMA.md §11.3](INVESTIGACION-ECOSISTEMA.md#113-checklist-de-validación---fuel-scan---fuel-diff).
+
+---
+
 ## 4. Arquitectura recomendada (síntesis)
 
 Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 
 ```
 ┌──────────────────┐
-│  Agent C#        │  ← OpenProcess / ReadProcessMemory / VirtualQueryEx
+│  Agent C#        │  ← OpenProcess / ReadProcessMemory (VirtualQueryEx → 2.2)
 │  snowrunner-     │     port de memoria_havok + offsets_referencia.json
 │  telemetry-agent │
 └────────┬─────────┘
@@ -197,11 +366,11 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 └──────────────────┘
 ```
 
-**Fase 0:** documentación + contrato.  
-**Fase 1:** API lee CSV existente (alternativa E).  
-**Fase 2:** agente nativo C# con memoria propia (alternativa G).  
-**Fase 3:** sesiones + cliente principal.  
-**Fase 4:** WebSocket stream.
+**Fase 0:** documentación + contrato — ✅  
+**Fase 1:** API lee CSV existente (alternativa E) — ✅  
+**Fase 2:** agente nativo C# (alternativa G) — **2.0/2.1 ✅**, 2.2 pausada, 2.4+ pendiente  
+**Fase 3:** sesiones + cliente principal — cola  
+**Fase 4:** WebSocket stream — opcional
 
 ---
 
@@ -209,27 +378,38 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 
 ### 5.1 Contrato y esquema
 
-- [ ] Copiar referencia de `CSV_HEADER` y campos `TelemetrySample` → [CONTRATO-DATOS.md](CONTRATO-DATOS.md)
-- [ ] Definir `schema_version` (ej. `ce_sample_v1`)
-- [ ] Listar campos **obligatorios** vs **opcionales** para import en principal
-- [ ] Documentar mapeo `vehicle_id` CE → mod (`registry.py`)
+- [x] Copiar referencia de `CSV_HEADER` y campos `TelemetrySample` → [CONTRATO-DATOS.md](CONTRATO-DATOS.md)
+- [x] Definir `schema_version` (ej. `ce_sample_v1`)
+- [x] Listar campos **obligatorios** vs **opcionales** para import en principal
+- [ ] Documentar mapeo `vehicle_id` CE → mod (`registry.py`) en contrato compartido
 
-### 5.2 Port al agente nativo (Fase 2, no hacer en Fase 1)
+### 5.2 Port al agente nativo (Fase 2)
 
+- [x] Spike `read_active_sample` en C# (`ActiveSampleReader`, Fase 2.1)
+- [x] Carga `offsets_referencia.json` + `ThrottleResolver` portado (adelanto 2.3)
+- [x] CLI diagnóstico combustible (`--fuel-scan`, `--fuel-diff`, `--fuel-debug`) — ver [§3 H.7](#h7-cli-del-agente-agentprogramcs-fase-21)
 - [ ] Inventariar qué **portar a C#** desde el principal:
-  - `memoria_havok.py` — lectura Havok (referencia; implementación nativa con lecturas batched)
-  - `offsets_referencia.json` — copia versionada junto al `.exe`
-  - `throttle_resolver.py` — specs por vehículo
-  - Loop de muestreo de `grabar_ce.py` — intervalo configurable, sin CSV intermedio
+  - `memoria_havok.py` — lectura Havok batched (2.2)
+  - `throttle_resolver.py` — paridad Python + env (2.3)
+  - Loop de muestreo de `grabar_ce.py` — intervalo configurable + `POST /internal/ingest` (2.4)
 - [ ] Qué **queda** en principal: `importar_ce_csv`, compare, index, `grabar_ce.py` legacy durante transición
-- [ ] Spike: `read_active_sample` mínimo en C# antes del port completo
+- [x] `offsets_referencia.json` versionado junto al agente (`agent/data/`)
+- [x] Entrada física volante: WinMM eje RZ cuando DirectInput bloqueado (VelocityOne + juego abierto)
+
+**Spike agente vs contrato completo** (subset jul 2026; ver [CONTRATO-DATOS.md](CONTRATO-DATOS.md)):
+
+| Campo | Agente 2.1 | CSV / sesión completa |
+|-------|------------|------------------------|
+| `vehicle_id`, `speed_kmh`, `throttle_*` | ✅ | ✅ |
+| `fuel_pct`, `fuel_liters`, `fuel_source` | 🟡 investigación | ✅ (CSV) |
+| `probe_ok`, `chain` | ✅ (diagnóstico) | — |
+| Ruedas, `terrain_kind`, drive batched | ⬜ 2.2 | ✅ |
 
 ### 5.3 Entorno y despliegue
 
-- [ ] Python 3.11+ (alineado con principal)
-- [ ] Puerto por defecto (ej. `8765`) — evitar conflicto con juego
-- [ ] Variables API: `SNOWRUNNER_API_PORT` (default `8765`)
-- [ ] Variables agente: `SNOWRUNNER_AGENT_INGEST_URL`, `SNOWRUNNER_AGENT_INTERVAL_MS` (default `100`), `SNOWRUNNER_OFFSETS_PATH`
+- [x] Python 3.11+ (alineado con principal)
+- [x] Puerto por defecto `8765` — `SNOWRUNNER_API_PORT`
+- [ ] Variables agente en runtime: `SNOWRUNNER_AGENT_INGEST_URL`, `SNOWRUNNER_AGENT_INTERVAL_MS`, `SNOWRUNNER_OFFSETS_PATH` (documentadas; ingest pendiente 2.4)
 - [ ] Log: NDJSON de muestras para replay sin juego
 
 ### 5.4 Calidad de datos
@@ -240,13 +420,16 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 
 ### 5.5 Seguridad
 
-- [ ] v0: bind `127.0.0.1` only
-- [ ] Lectura de memoria = mismo riesgo que CE hoy; documentar en README
+- [x] v0: bind `127.0.0.1` only (`config.py` → `DEFAULT_HOST`)
+- [x] Lectura de memoria = mismo riesgo que CE hoy; documentar en README
 - [ ] No exponer rutas absolutas del usuario en respuestas API
 
 ### 5.6 Pruebas sin juego
 
-- [ ] Fixture: `fixtures/sample_bandit_idle.json`
+- [x] Fixture CSV + tests parser (`tests/test_csv_parser.py`)
+- [x] Tests API `/v1/health`, `/status`, `/sample` (`tests/test_api.py`)
+- [x] Tests dashboard (`tests/test_dashboard.py`)
+- [ ] Fixture: `fixtures/sample_bandit_idle.json` (ROADMAP 0.8)
 - [ ] Fixture: `fixtures/session_ck1500_f2_snippet.json` (desde `telemetria/sesiones/`)
 - [ ] Test contrato: campos que exige `importar_ce_csv.csv_row_to_sample`
 
@@ -265,21 +448,21 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 
 ---
 
-## 7. Endpoints candidatos (no implementados)
+## 7. Endpoints
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/v1/health` | API viva |
-| GET | `/v1/status` | juego, PID, vehículo, offsets, mapa |
-| GET | `/v1/sample` | última muestra normalizada |
-| GET | `/v1/samples?since=t` | buffer reciente |
-| POST | `/v1/sessions/start` | inicia grabación; API crea buffer + `session_id` |
-| POST | `/v1/sessions/{id}/end` | cierra grabación; devuelve `ce_session_v1` completo |
-| GET | `/v1/sessions/{id}` | recuperar sesión ya cerrada |
-| POST | `/internal/ingest` | **solo localhost** — agente C# empuja `ce_sample_v1` |
-| WS | `/v1/stream` | muestras en tiempo real |
+| Método | Ruta | Descripción | Estado |
+|--------|------|-------------|--------|
+| GET | `/v1/health` | API viva | ✅ Fase 1 |
+| GET | `/v1/status` | csv path, mtime, modo agente inferido | ✅ Fase 1 |
+| GET | `/v1/sample` | última muestra normalizada `ce_sample_v1` | ✅ Fase 1 (CSV) |
+| GET | `/v1/samples?since=t` | buffer reciente | ⬜ |
+| POST | `/v1/sessions/start` | inicia grabación; API crea buffer + `session_id` | ⬜ Fase 3 |
+| POST | `/v1/sessions/{id}/end` | cierra grabación; devuelve `ce_session_v1` completo | ⬜ Fase 3 |
+| GET | `/v1/sessions/{id}` | recuperar sesión ya cerrada | ⬜ Fase 3 |
+| POST | `/internal/ingest` | **solo localhost** — agente C# empuja `ce_sample_v1` | ⬜ Fase 2.4 |
+| WS | `/v1/stream` | muestras en tiempo real | ⬜ Fase 4 |
 
-**Ninguno está implementado** — lista para validar en ROADMAP.
+Lista completa de tareas: [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -310,6 +493,9 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 | 6 | ¿Dónde corre la API? (Q1) | **Mismo PC** que el juego; bind `127.0.0.1:8765`; sin exposición LAN en v0 |
 | 7 | ¿Cómo consume el cliente? (Q2) | **Poll** — `GET /v1/sample` periódico; WebSocket en Fase 4 opcional |
 | 8 | ¿Formato de sesión? (Q4) | **Buffer en API** durante grabación; **JSON completo** (`ce_session_v1`) en `/end` |
+| 9 | ¿Mod/script in-game en lugar de agente? | **No** — `.pak` no expone runtime; CE Lua = legacy; **agente externo** = camino adoptado (§3 H) |
+| 10 | ¿Pedal con volante y juego abierto? | **WinMM eje RZ** primero; DirectInput suele bloqueado con SnowRunner en ejecución |
+| 11 | ¿Monitor en vivo sin ingest? | **Dashboard** `--source agent` (stdout) o `--source api` (CSV) — ver Q8 |
 
 **Implicaciones Q1:**
 
@@ -324,6 +510,6 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 - El principal guarda el JSON en `telemetria/sesiones/` y ejecuta `comparar_telemetria` sin cambios de lógica MAE.
 - Monitor en vivo sigue siendo poll (`GET /v1/sample`); sesión ≠ stream.
 
-**Fase 0 cerrada** en decisiones Q1–Q4. Pendiente solo 0.8 (fixtures JSON). **Fase 1 API CSV** implementada.
+**Fase 0 cerrada** en decisiones Q1–Q4. **Fase 1** API CSV implementada. **Fase 2.0/2.1** agente spike cerrado; **2.2 pausada** (combustible + batched Havok). Pendiente ROADMAP 0.8 (fixtures JSON sesión), 2.4 (ingest), 2.6 (paridad vs `grabar_ce.py`).
 
 Ver [RESUMEN.md](RESUMEN.md) · [ROADMAP.md](ROADMAP.md) · [INVESTIGACION-ECOSISTEMA.md](INVESTIGACION-ECOSISTEMA.md)
