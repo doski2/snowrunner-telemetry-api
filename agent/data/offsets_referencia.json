@@ -1,11 +1,11 @@
 {
-  "source": "scan_singleton.py brute + probe — build Steam 2026-06-25",
-  "game_version": "Steam update jun-2026; initial.pak 28880896 B",
+  "source": "agent --find-singletons (Bandit) + desplazamiento +0x4060 — build Steam 2026-09-03",
+  "game_version": "Steam update sep-2026; initial.pak 29073408 B; SnowRunner.exe 2026-09-03",
   "module": "SnowRunner.exe",
   "singletons": {
-    "TRUCK_CONTROL": "0x2A8EDD8",
+    "TRUCK_CONTROL": "0x2A92E38",
     "TRUCK_CONTROL_note": "SnowRunner.exe+2A8EDD8 -> combine_TRUCK_CONTROL* (antes +2A876A8)",
-    "DRIVE_LOGIC": "0x2A8EDC8",
+    "DRIVE_LOGIC": "0x2A92E28",
     "DRIVE_LOGIC_note": "validado mismo build (antes +2E5DA08 obsoleto)",
     "UI_FUEL_SINGLETON": "0x2E5BBEC"
   },
@@ -22,7 +22,7 @@
   "fuel_pointerscan": {
     "ce_fuel_hud": {
       "source": "CE pointerscan usuario validado jul-2026 — varios camiones, coincide HUD",
-      "module_offset": "0x2A8EDE0",
+      "module_offset": "0x2A92E40",
       "offsets": ["0x8", "0x68", "0x30", "0x2B0", "0xA8", "0xD0", "0x5E8"],
       "field_kind": "f32",
       "note": "exe+2A8EDE0 (+8 respecto TRUCK_CONTROL 0x2A8EDD8). Cadena CE: +8→+68→+30→+2B0→+A8→+D0→f32+5E8. Validado multi-vehículo vs HUD."
@@ -95,7 +95,8 @@
     "grip_per_wheel": "+0x2FC",
     "surface_deform": "+0x2B4",
     "contact_substance": "+0x2EC",
-    "note": "MH9500: +2B4 discrimina. Fleetstar: usar +2EC si +2B4 muy negativo",
+    "secondary_signal": "+0x2BC",
+    "note": "MH9500/Bandit saturado: bc_min>-0.05 o <-0.13=mud; bc_min>=-0.10=hard; gris=deform<-0.9975. Fleetstar: +2EC normal.",
     "kinds": [
       "hard",
       "mud",

@@ -1,0 +1,41 @@
+{
+  "vehicle_id": "s_fleetstar_f2070a",
+  "wheels": [
+    {
+      "grip": 0.2,
+      "contact": 0.8043,
+      "deform": -0.9315,
+      "bc": -0.3636
+    },
+    {
+      "grip": 0.2,
+      "contact": 0.8043,
+      "deform": -0.9315,
+      "bc": -0.3636
+    },
+    {
+      "grip": 0.2,
+      "contact": 0.8043,
+      "deform": -0.9315,
+      "bc": -0.3637
+    },
+    {
+      "grip": 0.2,
+      "contact": 0.8043,
+      "deform": -0.9315,
+      "bc": -0.3637
+    },
+    {
+      "grip": 0.2,
+      "contact": 0.8043,
+      "deform": -0.9315,
+      "bc": -0.3634
+    },
+    {
+      "grip": 0.2,
+      "contact": 0.8043,
+      "deform": -0.9315,
+      "bc": -0.3634
+    }
+  ]
+}

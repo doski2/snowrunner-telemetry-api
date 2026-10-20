@@ -14,3 +14,6 @@ agent/**/obj/
 .agent-probe/
 *.PTR
 *.PTR.results.*
+
+# Catálogo extraído de assets del juego (regenerar con scripts/extract_game_catalog.py)
+data/game_catalog.json

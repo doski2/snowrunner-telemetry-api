@@ -1,0 +1,14 @@
+{
+  "vehicle_id": "s_krs_58_bandit",
+  "note": "captura en vivo jul-2026 — asfalto Black River",
+  "wheels": [
+    {"grip": 1.0, "contact": 1.0, "deform": -0.995, "bc": -0.096},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.995, "bc": -0.096},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.995, "bc": -0.095},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.995, "bc": -0.095},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.996, "bc": -0.095},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.996, "bc": -0.095},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.995, "bc": -0.095},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.995, "bc": -0.095}
+  ]
+}

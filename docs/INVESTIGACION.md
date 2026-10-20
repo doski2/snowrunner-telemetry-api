@@ -2,7 +2,7 @@
 
 Documento de **recopilación y decisiones**. Objetivo: no escribir endpoints hasta entender alternativas, costes y contrato con `snowrunner real`.
 
-**Estado jul 2026:** Fase **0** y **1** cerradas (API CSV). Fase **2.0** + **2.1** cerradas (agente C# spike). Combustible cerrado (`ce_fuel_hud`). **2.2** pausada (port batched ruedas/terreno). Detalle: [ROADMAP.md](ROADMAP.md).
+**Estado jul 2026:** Fase **0** y **1** cerradas (API CSV). Fase **2.0** + **2.1** cerradas (agente C# spike). Combustible cerrado (`ce_fuel_hud`). Terreno por rueda portado (adelanto 2.2) con **modo saturado Bandit** (`+2BC`). Resto 2.2 pausado (batched + drive). Detalle: [ROADMAP.md §2.2](ROADMAP.md#fase-22--pendiente-recopilación-de-datos).
 
 ---
 
@@ -309,6 +309,18 @@ curl http://127.0.0.1:8765/v1/sample
 .\run_dashboard.bat --source agent
 ```
 
+#### H.5b Datos estáticos desde `initial.pak` (oct 2026)
+
+`preload\paks\client\initial.pak` es un **zip con XML legibles** (11 719 entradas: `classes/trucks`, `classes/wheels`, `terrain_layers`, `_templates/trucks.xml`). No requiere tocar el proceso del juego. `scripts/extract_game_catalog.py` (solo lectura) genera `data/game_catalog.json` (ignorado en git):
+
+| Dato | Origen | Uso |
+|------|--------|-----|
+| `FuelCapacity` por camión (118 camiones) | `classes/trucks/*.xml` | Validar `fuel_liters`/`fuel_pct` de `ce_fuel_hud` (Bandit = 150 L base) |
+| `BodyFriction`, `BodyFrictionAsphalt`, `SubstanceFriction` por tipo de neumático | `_templates/trucks.xml` | Calibrar el clasificador de terreno con valores reales del motor |
+| `IsAsphalt`, `IsWetnessAsIce`, etc. por capa de terreno | `classes/terrain_layers/*.xml` | Mapeo de materiales |
+
+Límites: son valores **base** (los addons de depósito cambian la capacidad) y los IDs de camión de los XML no coinciden con `vehicle_id` (`s_*`); falta la tabla de equivalencias. `shared.pak` (2 GB) contiene solo mallas.
+
 #### H.6 Tabla resumen — ¿qué camino usar?
 
 | Enfoque | ¿Envía datos en vivo? | ¿Mantenible? | Veredicto |
@@ -328,20 +340,24 @@ Punto de entrada: `Program.cs` (muestra JSON + flags de entrada). Sesión compar
 
 | Comando | Efecto |
 |---------|--------|
-| `.\run_agent.bat` | Una muestra JSON (`vehicle_id`, `speed_kmh`, `fuel_*`, throttle) |
+| `.\run_agent.bat` | Una muestra JSON (`vehicle_id`, `speed_kmh`, `fuel_*`, `terrain_*`, throttle) |
 | `.\run_agent.bat --loop --interval=500` | Poll continuo (stdout JSON compacto) |
 | `.\run_agent.bat --memory-only` | Sin volante; throttle desde Havok |
 | `.\run_agent.bat --fuel-scan --target-liters=171` | Busca offsets que coinciden con litros HUD |
 | `.\run_agent.bat --fuel-diff [--wait=5000]` | Snapshot antes/después; conducir o repostar en la espera |
 | `.\run_agent.bat --fuel-debug` | Probes `FuelReader` + cadena CE `ce_fuel_hud` (prioridad) |
+| `.\run_agent.bat --wheel-debug` | Por rueda: `+2FC/+2F8/+2F4`, `+2B4`, `+2EC/+2E8`, `terrain_kind` |
 | `.\run_agent.bat --list-devices` / `--watch-input` | Diagnóstico volante (WinMM → DirectInput → XInput) |
 | `.\run_dashboard.bat --source agent` | GUI en vivo sin API (parsea stdout del agente) |
+| `.\run_dashboard.bat --source agent --compare` | Terreno agente vs última fila CSV (requiere API + `grabar_ce.py`) |
 
 **Volante:** con SnowRunner abierto, DirectInput suele estar bloqueado; prioridad **WinMM eje RZ** (VelocityOne → `joy0`).
 
 Códigos de salida: `0` OK · `1` juego no en ejecución · `2` offsets/memoria · `3` probe fallido (cadena Havok o muestra incompleta).
 
 Checklist combustible en vivo: [INVESTIGACION-ECOSISTEMA.md §11.3](INVESTIGACION-ECOSISTEMA.md#113-checklist-de-validación---fuel-scan---fuel-diff).
+
+Paridad terreno agente ↔ Python: `scan_wheel_substance.py` + `grabar_ce.py --probe` (raíz del principal, no `cheat_engine/`). Validación Bandit jul 2026: [ROADMAP.md §2.2](ROADMAP.md#terreno--validación-bandit-jul-2026-black-river).
 
 ---
 
@@ -388,8 +404,9 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 - [x] Spike `read_active_sample` en C# (`ActiveSampleReader`, Fase 2.1)
 - [x] Carga `offsets_referencia.json` + `ThrottleResolver` portado (adelanto 2.3)
 - [x] CLI diagnóstico combustible (`--fuel-scan`, `--fuel-diff`, `--fuel-debug`) — ver [§3 H.7](#h7-cli-del-agente-agentprogramcs-fase-21)
+- [x] Terreno por rueda en C# (`WheelTerrainReader`, `--wheel-debug`) — paridad con `read_wheel_terrain` (jul 2026)
 - [ ] Inventariar qué **portar a C#** desde el principal:
-  - `memoria_havok.py` — lectura Havok batched (2.2)
+  - `memoria_havok.py` — lectura Havok **batched** + drive (2.2; terreno puntual ya portado)
   - `throttle_resolver.py` — paridad Python + env (2.3)
   - Loop de muestreo de `grabar_ce.py` — intervalo configurable + `POST /internal/ingest` (2.4)
 - [ ] Qué **queda** en principal: `importar_ce_csv`, compare, index, `grabar_ce.py` legacy durante transición
@@ -398,12 +415,15 @@ Ver [ARQUITECTURA.md](ARQUITECTURA.md). Resumen:
 
 **Spike agente vs contrato completo** (subset jul 2026; ver [CONTRATO-DATOS.md](CONTRATO-DATOS.md)):
 
-| Campo | Agente 2.1 | CSV / sesión completa |
-|-------|------------|------------------------|
+| Campo | Agente 2.1 / adelanto 2.2 | CSV / sesión completa |
+|-------|---------------------------|------------------------|
 | `vehicle_id`, `speed_kmh`, `throttle_*` | ✅ | ✅ |
-| `fuel_pct`, `fuel_liters`, `fuel_source` | 🟡 investigación | ✅ (CSV) |
+| `fuel_pct`, `fuel_liters`, `fuel_source` | ✅ (`ce_fuel_hud`) | ✅ (CSV) |
 | `probe_ok`, `chain` | ✅ (diagnóstico) | — |
-| Ruedas, `terrain_kind`, drive batched | ⬜ 2.2 | ✅ |
+| `terrain_kind`, `wheel_grip`, `mud_grade`, agregados rueda | ✅ (= Python; modo saturado Bandit jul 2026) | ✅ |
+| Drive batched, `VirtualQueryEx` | ⬜ 2.2 | ✅ |
+
+**Terreno (jul 2026):** modo **saturado** cuando `+2FC/+2EC≈1.0` en todas las ruedas (Bandit): discrimina con `+2B4` agregado y `+2BC`. Ver [ROADMAP.md](ROADMAP.md#terreno--validación-bandit-jul-2026-black-river) y `tests/test_terrain_classifier.py`.
 
 ### 5.3 Entorno y despliegue
 

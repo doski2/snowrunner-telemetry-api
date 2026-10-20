@@ -38,7 +38,7 @@ filterwarnings = [
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
-extraPaths = ["src"]
+extraPaths = ["src", "../snowrunner real", "../snowrunner real/cheat_engine"]
 pythonVersion = "3.11"
 venvPath = "."
 venv = ".venv"

@@ -1,0 +1,14 @@
+{
+  "vehicle_id": "s_krs_58_bandit",
+  "note": "captura en vivo jul-2026 — barro Black River, bc positivo +0.031",
+  "wheels": [
+    {"grip": 1.0, "contact": 1.0, "deform": -0.998, "bc": 0.031},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.998, "bc": 0.031},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": 0.032},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": 0.032},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": 0.031},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": 0.031},
+    {"grip": 1.0, "contact": 1.0, "deform": -1.0, "bc": 0.031},
+    {"grip": 1.0, "contact": 1.0, "deform": -1.0, "bc": 0.031}
+  ]
+}

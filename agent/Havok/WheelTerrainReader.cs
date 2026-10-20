@@ -27,7 +27,15 @@ internal static class WheelTerrainReader
     private const int OffWheelGripAlt1 = 0x2F4;
     private const int OffWheelGripAlt2 = 0x2F8;
     private const int OffWheelContactAlt = 0x2E8;
+    private const int OffWheelSecondary = 0x2BC;
     private const float SurfacePositiveThreshold = 0.25f;
+    private const float SatGripMin = 0.95f;
+    private const float SatContactMin = 0.95f;
+    private const float SatDeformMax = -0.5f;
+    private const float SatBcDeepMudThreshold = -0.130f;
+    private const float SatBcFirmMax = -0.050f;
+    private const float SatBcAsphaltMin = -0.100f;
+    private const float SatDeformDeepMudThreshold = -0.9975f;
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     public static WheelTerrainSnapshot? Read(
@@ -54,7 +62,8 @@ internal static class WheelTerrainReader
             velY);
 
         var ambiguous = samples.TrueForAll(static s =>
-            s.Deform < -0.5f && s.Contact >= 0.95f && s.Grip >= 0.9f);
+            s.Deform < -0.5f && s.Contact >= 0.95f && s.Grip >= 0.9f)
+            && classified.TerrainSource != "wheel_model;saturated_secondary";
 
         return new WheelTerrainSnapshot(
             classified.TerrainKind,
@@ -71,9 +80,11 @@ internal static class WheelTerrainReader
             Round3(contacts.Count > 0 ? Min(contacts) : 0f),
             Round3(contacts.Count > 0 ? Max(contacts) : 0f),
             classified.WheelKinds,
-            ambiguous
-                ? $"wheel_model:{vehicleId};ambiguous_bandit_like"
-                : $"wheel_model:{vehicleId}");
+            classified.TerrainSource.Contains("saturated_secondary", StringComparison.Ordinal)
+                ? $"wheel_model:{vehicleId};saturated_secondary"
+                : ambiguous
+                    ? $"wheel_model:{vehicleId};ambiguous_bandit_like"
+                    : $"wheel_model:{vehicleId}");
     }
 
     public static void DebugPrint(
@@ -114,7 +125,7 @@ internal static class WheelTerrainReader
                 $"[wheel-debug]  #{index} wheel=0x{wheel:X} " +
                 $"grip={Fmt(sample.Grip)} (2FC={Fmt(rawFc)} 2F8={Fmt(rawF8)} 2F4={Fmt(rawF4)}) " +
                 $"surface={Fmt(sample.SurfaceB4)} contact={Fmt(sample.Contact)} (2EC={Fmt(rawEc)} 2E8={Fmt(rawE8)}) " +
-                $"eff={sample.EffectiveSurface:F3}<-{effFrom} kind={sample.Kind}");
+                $"bc={sample.Bc:F3} eff={sample.EffectiveSurface:F3}<-{effFrom} kind={sample.Kind}");
             index++;
         }
 
@@ -133,9 +144,12 @@ internal static class WheelTerrainReader
         if (snap.TerrainSource.Contains("ambiguous", StringComparison.Ordinal))
         {
             Console.WriteLine(
-                "[wheel-debug] AVISO: +2B4 muy negativo y +2EC/+2FC ~1.0 — Havok no separa barro/asfalto en este camion.");
+                "[wheel-debug] AVISO: +2B4 muy negativo y +2EC/+2FC ~1.0 — sin calibracion +2BC.");
+        }
+        else if (snap.TerrainSource.Contains("saturated_secondary", StringComparison.Ordinal))
+        {
             Console.WriteLine(
-                "[wheel-debug]        Compara en el mismo sitio: python grabar_ce.py --probe y scan_wheel_substance.py --save <tag>");
+                "[wheel-debug] modo saturado (+2FC/+2EC~1.0): clasificacion via +2BC/deform agregados.");
         }
     }
 
@@ -144,6 +158,7 @@ internal static class WheelTerrainReader
         float SurfaceB4,
         float Contact,
         float Deform,
+        float Bc,
         float EffectiveSurface,
         string Kind);
 
@@ -152,7 +167,8 @@ internal static class WheelTerrainReader
         string SurfaceWheel,
         float GripAvg,
         float SurfaceAvg,
-        string WheelKinds);
+        string WheelKinds,
+        string TerrainSource);
 
     private static bool TryReadWheelSamples(
         nint processHandle,
@@ -215,9 +231,10 @@ internal static class WheelTerrainReader
 
         var sb = surfaceB4 ?? 0f;
         var contact = contactEc ?? 0f;
+        var bc = ReadF32(processHandle, wheel + OffWheelSecondary) ?? 0f;
         var effectiveSurface = EffectiveSurface(sb, contact);
         var kind = ClassifyWheelContact(grip.Value, effectiveSurface, sb);
-        return new WheelSample(grip.Value, sb, contact, sb, effectiveSurface, kind);
+        return new WheelSample(grip.Value, sb, contact, sb, bc, effectiveSurface, kind);
     }
 
     private static float EffectiveSurface(float surfaceB4, float contactEc) =>
@@ -252,17 +269,73 @@ internal static class WheelTerrainReader
     {
         if (samples.Count == 0)
         {
-            return new TerrainClassified("unknown", "", 0f, 0f, "");
+            return new TerrainClassified("unknown", "", 0f, 0f, "", "wheel_model");
         }
 
-        var kinds = samples.Select(static s => s.Kind).ToList();
-        var (terrainKind, surfaceWheel, _) = ResolveDominantKind(kinds);
+        if (IsGripContactSaturated(samples))
+        {
+            var kind = ClassifySaturatedKind(samples);
+            var kinds = Enumerable.Repeat(kind, samples.Count).ToList();
+            return new TerrainClassified(
+                kind,
+                kind,
+                Average(samples.Select(static s => s.Grip).ToList()),
+                Average(samples.Select(static s => s.EffectiveSurface).ToList()),
+                string.Join('|', kinds),
+                "wheel_model;saturated_secondary");
+        }
+
+        var wheelKinds = samples.Select(static s => s.Kind).ToList();
+        var (terrainKind, surfaceWheel, _) = ResolveDominantKind(wheelKinds);
         return new TerrainClassified(
             terrainKind,
             surfaceWheel,
             Average(samples.Select(static s => s.Grip).ToList()),
             Average(samples.Select(static s => s.EffectiveSurface).ToList()),
-            string.Join('|', kinds));
+            string.Join('|', wheelKinds),
+            "wheel_model");
+    }
+
+    private static bool IsGripContactSaturated(IReadOnlyList<WheelSample> samples)
+    {
+        if (samples.Count == 0)
+        {
+            return false;
+        }
+
+        var minGrip = Min(samples.Select(static s => s.Grip).ToList());
+        var minContact = Min(samples.Select(static s => s.Contact).ToList());
+        var maxDeform = Max(samples.Select(static s => s.Deform).ToList());
+        return minGrip >= SatGripMin && minContact >= SatContactMin && maxDeform < SatDeformMax;
+    }
+
+    private static string ClassifySaturatedKind(IReadOnlyList<WheelSample> samples)
+    {
+        var bcValues = samples.Select(static s => s.Bc).ToList();
+        if (bcValues.Count == 0)
+        {
+            return "hard";
+        }
+
+        var bcMin = Min(bcValues);
+        var deformAvg = Average(samples.Select(static s => s.Deform).ToList());
+
+        if (bcMin > SatBcFirmMax)
+        {
+            return "mud";
+        }
+
+        if (bcMin < SatBcDeepMudThreshold)
+        {
+            return "mud";
+        }
+
+        if (bcMin >= SatBcAsphaltMin)
+        {
+            return "hard";
+        }
+
+        return deformAvg < SatDeformDeepMudThreshold ? "mud" : "hard";
     }
 
     private static (string TerrainKind, string SurfaceWheel, bool WheelDisagreement) ResolveDominantKind(

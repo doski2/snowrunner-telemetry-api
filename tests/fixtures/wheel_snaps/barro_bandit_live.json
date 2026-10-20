@@ -1,0 +1,14 @@
+{
+  "vehicle_id": "s_krs_58_bandit",
+  "note": "captura en vivo jul-2026 — barro Black River",
+  "wheels": [
+    {"grip": 1.0, "contact": 1.0, "deform": -0.989, "bc": -0.147},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.989, "bc": -0.147},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.992, "bc": -0.123},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.992, "bc": -0.123},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": -0.034},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": -0.034},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": -0.035},
+    {"grip": 1.0, "contact": 1.0, "deform": -0.999, "bc": -0.035}
+  ]
+}

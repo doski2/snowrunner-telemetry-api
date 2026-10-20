@@ -1,0 +1,53 @@
+{
+  "vehicle_id": "s_krs_58_bandit",
+  "wheels": [
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9922,
+      "bc": -0.1248
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9922,
+      "bc": -0.1248
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9946,
+      "bc": -0.1033
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9946,
+      "bc": -0.1033
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9999,
+      "bc": -0.0145
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9999,
+      "bc": -0.0145
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9999,
+      "bc": -0.0137
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.9999,
+      "bc": -0.0137
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "vehicle_id": "s_gmc9500",
+  "wheels": [
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": 0.7954,
+      "bc": -0.6061
+    },
+    {
+      "grip": 0.195,
+      "contact": 0.791,
+      "deform": 0.7954,
+      "bc": -0.6061
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": 0.7952,
+      "bc": -0.6063
+    },
+    {
+      "grip": 0.196,
+      "contact": 0.7938,
+      "deform": 0.7952,
+      "bc": -0.6063
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": 0.8369,
+      "bc": -0.5473
+    },
+    {
+      "grip": 0.1943,
+      "contact": 0.7891,
+      "deform": 0.8369,
+      "bc": -0.5473
+    }
+  ]
+}

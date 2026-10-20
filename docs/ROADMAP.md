@@ -72,15 +72,15 @@ Invoke-RestMethod http://127.0.0.1:8765/v1/sample
 
 Proyecto: `agent/` → `snowrunner-telemetry-agent` (.NET 8, win-x64).
 
-**Estado (jul 2026):** Fases **2.0** y **2.1** cerradas. **Pausa** antes de **2.2** — se retoma más adelante tras recopilar más datos en juego (offsets Havok, combustible en vivo). Fases 2.3–2.8 y Fase 3+ quedan en cola; no bloquean el uso actual del dashboard + agente en modo spike.
+**Estado (jul 2026):** Fases **2.0** y **2.1** cerradas. **Terreno por rueda** portado al agente (adelanto 2.2) y validado vs Python. **Pausa** en el resto de **2.2** (batched completo, drive). Fases 2.3–2.8 y Fase 3+ en cola.
 
 | # | Tarea | Estado |
 |---|-------|--------|
 | 2.0 | Scaffold `agent/SnowrunnerTelemetryAgent.csproj` + P/Invoke kernel32 | ✅ |
 | 2.1 | Spike: `OpenProcess` + `read_active_sample` mínimo (speed, vehicle_id, throttle) | ✅ |
 | 2.1.1 | `fase2_comprobar.bat` — build, offsets, WinMM; probe en vivo si hay juego | ✅ |
-| 2.1.2 | Dashboard GUI (`fuel_pct`, `speed_kmh`, fuente agente/API) | ✅ (adelanto; no sustituye 2.4) |
-| 2.2 | Port lecturas batched Havok (rigid body, ruedas, drive) desde `memoria_havok.py` | ⏸ **pausado** — ver [§2.2 pendiente](#fase-22--pendiente-recopilación-de-datos) |
+| 2.1.2 | Dashboard GUI (`fuel_pct`, `speed_kmh`, terreno, fuente agente/API, `--compare`) | ✅ (adelanto; no sustituye 2.4) |
+| 2.2 | Port lecturas batched Havok (rigid body, ruedas, drive) desde `memoria_havok.py` | ⏸ **parcial** — terreno C# ✅; batched + drive ⬜ — ver [§2.2](#fase-22--pendiente-recopilación-de-datos) |
 | 2.3 | Cargar `offsets_referencia.json`; `throttle_resolver` portado | 🟡 parcial (en 2.1; falta paridad Python + env) |
 | 2.4 | Loop muestreo + `POST /internal/ingest` → API buffer | ⬜ |
 | 2.5 | `GET /v1/status` con `probe_ok`, `agent_version`, `throttle_spec` | ⬜ |
@@ -131,25 +131,60 @@ Proyecto: `agent/` → `snowrunner-telemetry-agent` (.NET 8, win-x64).
 
 **Objetivo de código:** portar lecturas **batched** de `memoria_havok.py` — rigid body, ruedas, drive, terreno por rueda — no solo el spike mínimo de 2.1.
 
-**Por qué pausa:** hace falta cerrar offsets de **ruedas/terreno** antes de portar el bloque batched completo. Combustible cerrado con `ce_fuel_hud` (ver abajo).
+**Por qué pausa (resto de 2.2):** falta batched completo + drive. **Combustible** cerrado (`ce_fuel_hud`). **Terreno por rueda** en agente C# ya portado y validado vs Python (jul 2026).
 
 | Dato | Estado jul 2026 | Herramienta |
 |------|-----------------|-------------|
 | `speed_kmh`, `vehicle_id`, throttle | ✅ spike 2.1 | `.\run_agent.bat`, `fase2_comprobar.bat` |
 | Combustible HUD en vivo | ✅ `ce_fuel_hud` | `.\run_agent.bat --fuel-debug` → `fuel_source=ce_fuel_hud`; ver [§11.5](INVESTIGACION-ECOSISTEMA.md#115-ce-pointerscan-combustible-usuario-jul-2026) |
-| Ruedas / `terrain_kind` / drive batched | ⬜ sin portar | referencia `memoria_havok.py` en principal |
+| Terreno por rueda (`terrain_kind`, grip, mud_grade) | ✅ **agente C# = Python** (+ modo saturado Bandit) | `.\run_agent.bat --wheel-debug`; dashboard `--source agent` |
+| Ruedas batched + drive + `VirtualQueryEx` | ⬜ sin portar | referencia `memoria_havok.py` en principal |
+
+#### Terreno — validación Bandit (jul 2026, Black River)
+
+Port C# (`agent/Havok/WheelTerrainReader.cs`) + `memoria_havok.py` / `terrain_classifier.py`.
+
+**Problema:** en Bandit, `+2FC` y `+2EC` saturan en **1.0** en asfalto y barro; `+2B4` solo cambia ~0.0016. El clasificador base devolvía `hard` en ambos.
+
+**Fix (modo saturado):** si todas las ruedas tienen `grip≥0.95`, `contact≥0.95` y `deform<-0.5`, clasificar con `+2BC` y `deform`: `bc_min>-0.05` o `bc_min<-0.13` → `mud`; `bc_min≥-0.10` → `hard` (asfalto ~-0.09); zona gris → `deform_avg<-0.9975`. Fixtures: `tests/fixtures/wheel_snaps/*_live*.json`.
+
+| Superficie | `bc_min` / `deform` | Resultado | Modo |
+|------------|---------------------|-----------|------|
+| Garaje | `+2B4` ~+0.11 / deform_avg ~+0.04 | **hard** | normal (`wheel_model`) |
+| Asfalto (carretera) | bc ~-0.09 / deform ~-0.996 | **hard** | saturado |
+| Barro (bc negativo) | bc ~-0.15…-0.26 | **mud** | saturado |
+| Barro (bc positivo) | bc ~+0.03 | **mud** | saturado |
+
+Snap garaje: `wheel_snaps/garaje_bandit.json` (pos ~381, -653). Fixtures API: `tests/fixtures/wheel_snaps/`.
+
+`terrain_source=wheel_model;saturated_secondary` en JSON del agente. Fleetstar/GMC siguen por el clasificador normal (`+2FC`/`+2EC`).
+
+**Agua (`water_ford`) — baja prioridad:** no hay `terrain_kind` agua; es `mud`/`mixed` + `mud_grade_label=water_ford` (`vel_y<-0.35`, `contact_avg≥0.48`). En rutas de prueba hay **pocos vados** y **mucho barro** — no calibrar agua ahora; retomar solo si en sesión real falla `water_ford` o el modo saturado Bandit impide verlo (`hard` → `dry_hard`).
+
+**Comprobar en vivo:**
+
+```powershell
+.\run_agent.bat --wheel-debug
+cd "..\snowrunner real\cheat_engine"
+python scan_wheel_substance.py --save <etiqueta>
+cd "..\.."
+python grabar_ce.py --probe
+```
+
+Dashboard: `.\run_dashboard.bat --source agent` (terreno en vivo); `--compare` requiere `.\run_api.bat` + `grabar_ce.py` grabando.
 
 **Leads combustible archivados** (no seguir; solo fallback/diagnóstico en `FuelReader` si `ce_fuel_hud` rompe tras patch): `addon+868` + `veh+728` (snapshot estático ~199 L), `addon+258`, probes consume/repostaje (`130→05C`, `128→040`), lead FindMuck `addon+568`. Siguen visibles en `--fuel-debug` / `--fuel-diff`.
 
-**Al retomar 2.2:**
+**Al retomar 2.2 (batched + drive):**
 
 1. Smoke test combustible: `fuel_source=ce_fuel_hud` y HUD ±2 L (consumo + repostaje); si falla tras patch → [mantenimiento post-patch](#mantenimiento-tras-patch-del-juego-continuo-no-bloquea-fase-3).
-2. Inventariar en Python qué funciones de `memoria_havok.py` entran en el primer batch (rigid body + wheels mínimo).
-3. Implementar `FieldReader` / lecturas por bloque en C# (mismo patrón batched que Python).
-4. Ampliar muestra JSON del agente con columnas alineadas a `CSV_HEADER` (subset acordado en [CONTRATO-DATOS.md](CONTRATO-DATOS.md)).
-5. Comparar con `grabar_ce.py` (precursor de tarea 2.6).
+2. Terreno: no re-portar clasificación C# (ya hecho); si se calibra Bandit en principal, sincronizar umbrales/offsets en `offsets_referencia.json`.
+3. Inventariar en Python qué funciones de `memoria_havok.py` entran en el primer batch (rigid body + wheels batched).
+4. Implementar lecturas por bloque en C# + `VirtualQueryEx` (mismo patrón batched que Python).
+5. Ampliar muestra JSON del agente con columnas alineadas a `CSV_HEADER` (subset en [CONTRATO-DATOS.md](CONTRATO-DATOS.md)).
+6. Comparar con `grabar_ce.py --probe` (precursor de tarea 2.6).
 
-**Criterio de salida 2.2:** lecturas batched C# (rigid body + ruedas mínimo) alineadas con `memoria_havok.py`; `VirtualQueryEx` en cache de regiones; muestra ampliada sin regresión en `probe_ok` del spike 2.1. Combustible ya cubierto por `ce_fuel_hud` (no reabrir leads archivados salvo rotura de cadena).
+**Criterio de salida 2.2:** lecturas batched C# (rigid body + ruedas) alineadas con `memoria_havok.py`; `VirtualQueryEx` en cache de regiones; muestra ampliada sin regresión en `probe_ok` del spike 2.1. Terreno por rueda: paridad agente = `grabar_ce.py --probe` (validado Bandit jul 2026). Combustible: `ce_fuel_hud`.
 
 **Mientras tanto (sin bloquear):** dashboard `--source agent`, documentación [INVESTIGACION.md §3 H](INVESTIGACION.md#h-script-o-mod-que-exponga--envíe-datos--es-posible), limpieza de código legacy.
 

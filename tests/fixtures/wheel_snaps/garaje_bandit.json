@@ -1,0 +1,54 @@
+{
+  "vehicle_id": "s_krs_58_bandit",
+  "note": "garaje Black River jul-2026 \u2014 clasificador normal, no modo saturado",
+  "wheels": [
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": 0.1019,
+      "bc": -0.9948
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": 0.1019,
+      "bc": -0.9948
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": 0.0793,
+      "bc": -0.9969
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": 0.0793,
+      "bc": -0.9969
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.0095,
+      "bc": -0.9999
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.0095,
+      "bc": -0.9999
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.0092,
+      "bc": -0.9999
+    },
+    {
+      "grip": 1.0,
+      "contact": 1.0,
+      "deform": -0.0092,
+      "bc": -0.9999
+    }
+  ]
+}

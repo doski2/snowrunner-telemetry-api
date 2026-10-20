@@ -29,6 +29,11 @@ internal static partial class Program
             return ExitOk;
         }
 
+        if (HasArg(args, "--find-singletons"))
+        {
+            return RunFindSingletons(args);
+        }
+
         if (HasArg(args, "--fuel-debug"))
         {
             return RunFuelDebug();
