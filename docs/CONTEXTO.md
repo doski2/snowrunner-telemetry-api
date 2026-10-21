@@ -32,7 +32,10 @@ SnowRunner.exe
 ### 2. Frontera de datos poco clara
 
 - El CSV mezcla **adquisición** (Havok) con **semántica de negocio** (protocolo F1/F2, MAE).
-- Grabaciones antiguas tienen columnas distintas (`throttle` vs `throttle_input` / `throttle_motor`).
+- Grabaciones antiguas tienen columnas distintas (`throttle` vs `throttle_input` /
+
+  `throttle_motor`).
+
 - No hay versión de esquema ni endpoint de “última muestra”.
 
 ### 3. SnowRunner no ofrece telemetría oficial
@@ -41,12 +44,18 @@ Cita del propio `telemetria.py`:
 
 > SnowRunner no publica telemetría (SimHub, API, UDP).
 
-Todo depende de **ingeniería inversa** (offsets, singletons `TRUCK_CONTROL` / `DRIVE_LOGIC`). Eso debe vivir en un **módulo de adquisición** estable, no repartido entre grabación y sim.
+Todo depende de **ingeniería inversa** (offsets, singletons `TRUCK_CONTROL` / `DRIVE_LOGIC`). Eso
+debe vivir en un **módulo de adquisición** estable, no repartido entre grabación y sim.
 
 ### 4. Escalabilidad del flujo de calibración
 
-- Varios camiones (`ck1500`, `bandit`, `t813`…) con offsets **por vehículo** (`throttle_resolver`, `per_vehicle`).
-- El proyecto principal debe **consumir muestras ya normalizadas**, no redescubrir punteros en cada script.
+- Varios camiones (`ck1500`, `bandit`, `t813`…) con offsets **por vehículo** (`throttle_resolver`,
+
+  `per_vehicle`).
+
+- El proyecto principal debe **consumir muestras ya normalizadas**, no redescubrir punteros en cada
+
+  script.
 
 ## Qué debe hacer la API (alcance)
 
@@ -67,8 +76,14 @@ Todo depende de **ingeniería inversa** (offsets, singletons `TRUCK_CONTROL` / `
 ## Beneficio esperado
 
 1. **Un solo contrato** de muestra para CSV, API y JSON.
-2. **Agente Windows** (lector memoria) separado del **servidor de análisis** (puede ser el mismo PC al inicio).
-3. Posibilidad futura: grabar siempre igual aunque cambien offsets internos (la API abstrae `tc+0E8` vs `tc+0F8`).
+2. **Agente Windows** (lector memoria) separado del **servidor de análisis** (puede ser el mismo PC
+
+   al inicio).
+
+3. Posibilidad futura: grabar siempre igual aunque cambien offsets internos (la API abstrae `tc+0E8`
+
+   vs `tc+0F8`).
+
 4. Tests de la API con **fixtures JSON** sin abrir el juego.
 
 ## Enlace entre repos

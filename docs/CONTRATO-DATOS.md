@@ -1,6 +1,7 @@
 # Contrato de datos — API ↔ proyecto principal
 
-Este documento fija **qué debe enviar la API** para que `snowrunner real` pueda importar y comparar sin cambios grandes.
+Este documento fija **qué debe enviar la API** para que `snowrunner real` pueda importar y comparar
+sin cambios grandes.
 
 **Fuente de verdad:** archivos en `../snowrunner real/` (ruta relativa desde este repo hermano).
 
@@ -58,7 +59,8 @@ Alineada con `memoria_havok.CSV_HEADER` y enriquecimiento `enrich_drive_fields`.
 | `throttle_input_base`   | string     | ej. `tc+0F8`                               |
 | `throttle_input_offset` | string     | ej. `+0x0C8`                               |
 
-**Regla:** la API no debe emitir solo `throttle` sin `throttle_input` cuando el resolver tenga spec válido.
+**Regla:** la API no debe emitir solo `throttle` sin `throttle_input` cuando el resolver tenga spec
+válido.
 
 ### Campos opcionales
 
@@ -67,20 +69,6 @@ Posición, yaw, fuel, diff/awd/low, trailer, etc. — mismos nombres que CSV act
 ### Ejemplo mínimo
 
 ```json
-{
-  "schema_version": "ce_sample_v1",
-  "t_s": 3.61,
-  "speed_kmh": 5.66,
-  "vehicle_id": "s_krs_58_bandit",
-  "terrain_kind": "hard",
-  "chain": "TRUCK_CONTROL",
-  "throttle_input": 0.85,
-  "throttle_motor": 1.0,
-  "throttle": 0.85,
-  "engine_rpm": 1200,
-  "map_name": "Black River",
-  "level_id": "level_us_01_01"
-}
 ```
 
 ---
@@ -90,10 +78,6 @@ Posición, yaw, fuel, diff/awd/low, trailer, etc. — mismos nombres que CSV act
 Compatible con `telemetria.py`:
 
 ```python
-@dataclass
-class TelemetrySession:
-    meta: SessionMeta
-    samples: list[TelemetrySample]
 ```
 
 ### `meta` mínimo
@@ -124,34 +108,14 @@ Cada elemento de `samples[]` puede ser:
 - objeto `ce_sample_v1` completo, o
 - formato actual `TelemetrySample` del principal (`speed_kmh`, `note` con kv, etc.)
 
-**Estrategia de transición:** la API emite `ce_sample_v1`; el cliente principal convierte a `TelemetrySample` igual que `importar_ce_csv.csv_row_to_sample`.
+**Estrategia de transición:** la API emite `ce_sample_v1`; el cliente principal convierte a
+`TelemetrySample` igual que `importar_ce_csv.csv_row_to_sample`.
 
 ---
 
 ## Estado del sistema (`GET /v1/status`)
 
 ```json
-{
-  "schema_version": "status_v1",
-  "api_ok": true,
-  "game_running": true,
-  "pid": 24104,
-  "vehicle_ce_id": "s_chevrolet_ck1500",
-  "vehicle_mod_id": "ck1500",
-  "probe_ok": true,
-  "agent_mode": "csv",
-  "offsets_build": "jun-2026",
-  "throttle_input_ok": true,
-  "throttle_spec": {
-    "base": "tc+0F8",
-    "offset": "+0x0C8",
-    "kind": "u8",
-    "source": "per_vehicle"
-  },
-  "map_name": "Black River",
-  "samples_buffered": 842,
-  "last_sample_t_s": 1265.4
-}
 ```
 
 ---
@@ -177,13 +141,15 @@ La API puede incluir `vehicle_mod_id` resuelto para evitar duplicar lógica en e
 
 1. Sesión inválida si >50 % muestras sin `terrain_kind` (`datos/README.md`).
 2. Preflight gas: con vehículo parado, `throttle_input` ≤ 0.15 (`calibrar_drive.preflight_check`).
-3. Archivar CSV crudo en `datos/raw/ce_csv/` es responsabilidad del **cliente** principal, no de la API.
+3. Archivar CSV crudo en `datos/raw/ce_csv/` es responsabilidad del **cliente** principal, no de la
+
+   API.
 
 ---
 
 ## Archivos de referencia (principal)
 
-```
+```text
 snowrunner real/
   cheat_engine/memoria_havok.py      # CSV_HEADER, read_active_sample
   telemetria.py                      # TelemetrySession, TEST_PROTOCOLS

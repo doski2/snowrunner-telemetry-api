@@ -43,12 +43,13 @@ internal static class FuelReader
         OffsetsReference offsets,
         nint vehicle)
     {
-        var capacity = offsets.FuelDefaultCapacityLiters;
         foreach (var scan in offsets.FuelPointerScans)
         {
-            if (FuelPointerChainReader.TryRead(processHandle, moduleBase, scan, capacity) is { } chainRead)
+            if (FuelPointerChainReader.TryRead(
+                    processHandle, moduleBase, scan, offsets.FuelDefaultCapacityLiters) is { } chainRead)
             {
-                return new FuelSnapshot(chainRead.Liters, capacity, chainRead.Label);
+                var label = chainRead.CapacityFromMemory ? chainRead.Label : $"{chainRead.Label}+cap_default";
+                return new FuelSnapshot(chainRead.Liters, chainRead.CapacityLiters, label);
             }
         }
 

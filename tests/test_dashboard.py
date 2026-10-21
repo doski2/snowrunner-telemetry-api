@@ -43,12 +43,41 @@ def test_parse_optional_float_fuel():
     assert parse_optional_float({}, "fuel_pct") is None
 
 
-def test_normalize_chart_metric():
-    from snowrunner_telemetry_api.dashboard.metrics import normalize_chart_metric
+def test_build_view_full_sample(tmp_path):
+    from snowrunner_telemetry_api.dashboard.advice import IdealThrottleTable
+    from snowrunner_telemetry_api.dashboard.view import build_view
 
-    assert normalize_chart_metric("fuel_pct") == "fuel_pct"
-    assert normalize_chart_metric("Combustible") == "fuel_pct"
-    assert normalize_chart_metric("invalid") == "speed_kmh"
+    sample = {
+        "vehicle_id": "s_krs_58_bandit",
+        "throttle_game": 0.5,
+        "fuel_pct": 69.0,
+        "fuel_liters": 144.86,
+        "fuel_cap_liters": 210,
+        "terrain_kind": "mud",
+        "mud_grade_label": "mud_deep",
+        "wheel_grip": 0.6,
+        "surface_avg": 0.9,
+        "wheel_count": 8,
+        "fuel_source": "ce_fuel_hud",
+    }
+    view = build_view(sample, 12.34, IdealThrottleTable(tmp_path / "no_existe.json"))
+    assert view.speed_text == "12.3"
+    assert view.gas_pct == 50.0 and view.gas_text == "50 %"
+    assert view.fuel_text == "69 %  ·  145 / 210 L"
+    assert view.terrain_title == "MUD (mud deep)"
+    assert view.terrain_detail == "grip 0.60 · surface 0.90 · 8 ruedas"
+    assert "sin datos" in view.gas_advice
+    assert view.vehicle == "s_krs_58_bandit" and view.source == "ce_fuel_hud"
+
+
+def test_build_view_empty_sample(tmp_path):
+    from snowrunner_telemetry_api.dashboard.advice import IdealThrottleTable
+    from snowrunner_telemetry_api.dashboard.view import build_view
+
+    view = build_view({}, 0.0, IdealThrottleTable(tmp_path / "x.json"))
+    assert view.gas_pct is None and view.gas_text == "—"
+    assert view.fuel_text == "—" and view.fuel_pct is None
+    assert view.terrain_title == "—" and view.vehicle == "—"
 
 
 def test_format_http_error_csv_not_found():
@@ -195,3 +224,25 @@ def test_try_parse_json_buffer_multiline():
         "vehicle_id": "s_fleetstar_f2070a",
     }
     assert try_parse_json_buffer(["{"]) is None
+
+
+def test_agent_source_publishes_every_sample_to_callback():
+    from snowrunner_telemetry_api.dashboard.agent_source import AgentLoopSource
+
+    seen: list[int] = []
+    source = AgentLoopSource(500, on_sample=lambda s: seen.append(s["sample_seq"]))
+    for seq in (1, 2, 3):  # la ventana solo consultaría la última, el callback recibe todas
+        source._publish({"sample_seq": seq, "speed_kmh": float(seq)})
+    assert seen == [1, 2, 3]
+    assert source.latest()["sample_seq"] == 3
+
+
+def test_agent_source_callback_error_does_not_break_reader():
+    from snowrunner_telemetry_api.dashboard.agent_source import AgentLoopSource
+
+    def boom(_sample):
+        raise RuntimeError("disco lleno")
+
+    source = AgentLoopSource(500, on_sample=boom)
+    source._publish({"sample_seq": 1, "speed_kmh": 5.0})
+    assert source.latest()["speed_kmh"] == 5.0

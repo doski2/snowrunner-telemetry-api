@@ -7,17 +7,26 @@ namespace SnowrunnerTelemetryAgent.Havok;
 /// <summary>CE pointerscan: static module offset + pointer hops + final field offset.</summary>
 internal static class FuelPointerChainReader
 {
+    private const float MinPlausibleCapacity = 30f;
+    private const float MaxPlausibleCapacity = 1500f;
+
     public sealed record ChainReadResult(
         float Raw,
         double Liters,
+        int CapacityLiters,
+        bool CapacityFromMemory,
         nint FieldAddress,
         string Label);
 
+    /// <summary>
+    /// Lee litros del HUD y, junto al campo (<c>CapacityDelta</c>), la capacidad real del depósito.
+    /// <paramref name="fallbackCapacityLiters"/> solo se usa si esa lectura no es plausible.
+    /// </summary>
     public static ChainReadResult? TryRead(
         nint processHandle,
         nint moduleBase,
         FuelPointerScanSpec spec,
-        int capacityLiters)
+        int fallbackCapacityLiters)
     {
         if (spec.Offsets.Length == 0)
         {
@@ -35,12 +44,22 @@ internal static class FuelPointerChainReader
             return null;
         }
 
-        if (!TryInterpretFuelLiters(raw, capacityLiters, out var liters))
+        var capacity = fallbackCapacityLiters;
+        var fromMemory = false;
+        if (spec.CapacityDelta != 0
+            && ProcessMemoryReader.ReadFloat32(processHandle, field + spec.CapacityDelta) is { } cap
+            && cap is >= MinPlausibleCapacity and <= MaxPlausibleCapacity)
+        {
+            capacity = (int)Math.Round(cap);
+            fromMemory = true;
+        }
+
+        if (!TryInterpretFuelLiters(raw, capacity, out var liters))
         {
             return null;
         }
 
-        return new ChainReadResult(raw, liters, field, spec.Label);
+        return new ChainReadResult(raw, liters, capacity, fromMemory, field, spec.Label);
     }
 
     public static string DebugLine(

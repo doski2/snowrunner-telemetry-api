@@ -21,10 +21,6 @@ snowrunner-dashboard = "snowrunner_telemetry_api.dashboard.__main__:main"
 dev = [
     "pytest>=8.0",
     "httpx2>=2.0",
-    "matplotlib>=3.8",
-]
-dashboard = [
-    "matplotlib>=3.8",
 ]
 
 [tool.setuptools.packages.find]

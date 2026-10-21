@@ -7,6 +7,7 @@ public sealed record SpikeSample
     public double SpeedKmh { get; init; }
     public string ThrottleInput { get; init; } = "";
     public string ThrottleMotor { get; init; } = "";
+    public double? ThrottleGame { get; init; }
     public string ThrottleInputSource { get; init; } = "none";
     public string ThrottleInputMemory { get; init; } = "";
     public string ThrottleInputMemorySource { get; init; } = "none";
@@ -24,6 +25,9 @@ public sealed record SpikeSample
     public float VelX { get; init; }
     public float VelY { get; init; }
     public float VelZ { get; init; }
+    public float[]? Position { get; init; }
+    public float[]? Rotation { get; init; }
+    public float[]? AngularVelocity { get; init; }
     public double? FuelPct { get; init; }
     public double? FuelLiters { get; init; }
     public int? FuelCapacityLiters { get; init; }

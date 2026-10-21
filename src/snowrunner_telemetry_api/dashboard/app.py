@@ -1,18 +1,24 @@
-"""GUI tkinter + matplotlib — velocidad y combustible en tiempo real."""
+"""GUI tkinter — panel en vivo: velocidad, gas, combustible, terreno y estado de grabación."""
 
 from __future__ import annotations
 
-import math
 import time
 import tkinter as tk
-from collections import deque
 from tkinter import ttk
 from typing import Any
 
+from ..physics import LiveMetrics
+from .advice import IdealThrottleTable
 from .agent_source import AgentLoopSource, AgentSampleError
-from .metrics import CHART_METRIC_LABELS, CHART_METRICS, normalize_chart_metric
-from .poll import ApiSampleError, fetch_api_sample, parse_optional_float, parse_speed_kmh, resolve_source
+from .poll import ApiSampleError, fetch_api_sample, parse_speed_kmh, resolve_source
+from .recorder import SessionRecorder
 from .terrain import compare_terrain
+from .view import build_view
+
+BIG = ("Segoe UI", 28, "bold")
+MID = ("Segoe UI", 18, "bold")
+SMALL = ("Segoe UI", 10)
+MUTED = "#666"
 
 
 class SpeedDashboard:
@@ -20,228 +26,184 @@ class SpeedDashboard:
         self,
         base_url: str,
         interval_ms: int,
-        history_len: int,
         *,
         source: str = "auto",
-        chart_metric: str = "speed_kmh",
         compare_csv: bool = False,
+        record_label: str | None = None,
     ) -> None:
-        try:
-            from . import chart_backend
-        except ImportError as exc:  # pragma: no cover
-            raise SystemExit(
-                'Falta matplotlib. Instala: pip install -e ".[dashboard]"'
-            ) from exc
-
-        self._Figure = chart_backend.Figure
-        self._FigureCanvasTkAgg = chart_backend.FigureCanvasTkAgg
         self.base_url = base_url
         self.interval_ms = interval_ms
         self.source_mode = resolve_source(source, base_url)
         self.compare_csv = compare_csv
-        self.chart_metric = normalize_chart_metric(chart_metric)
+        self._ideal_table = IdealThrottleTable()
+        self._recorder = SessionRecorder(record_label) if record_label else None
+        if self._recorder is not None:
+            print(f"[dashboard] grabando en {self._recorder.path}")
+
         self._agent: AgentLoopSource | None = None
         self._compare_agent: AgentLoopSource | None = None
         if self.source_mode == "agent" or compare_csv:
-            self._agent = AgentLoopSource(interval_ms)
+            # con el agente como fuente se graba cada muestra suya, no solo las que pinta la ventana
+            on_sample = self._recorder.write if self._recorder and self.source_mode == "agent" else None
+            self._agent = AgentLoopSource(interval_ms, on_sample)
             self._agent.start()
         if compare_csv and self.source_mode != "agent":
             self._compare_agent = AgentLoopSource(interval_ms)
             self._compare_agent.start()
 
-        self.times: deque[float] = deque(maxlen=history_len)
-        self.speeds: deque[float] = deque(maxlen=history_len)
-        self.fuels: deque[float | None] = deque(maxlen=history_len)
-        self.started = time.monotonic()
         self.running = True
-        self.show_history = True
+        self.vmax = 0.0
+        self._live = LiveMetrics()
+        self._last_seq: object = None
+        self._last_metrics: dict = {}
 
         self.root = tk.Tk()
         self.root.title("SnowRunner — Telemetría")
-        self.root.geometry("900x560")
-        self.root.minsize(720, 320)
+        self.root.geometry("860x480")
+        self.root.minsize(800, 440)
 
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(0, self._tick)
 
+    # ---------------------------------------------------------------- UI
+
+    def _card(self, title: str, row: int, column: int) -> ttk.LabelFrame:
+        card = ttk.LabelFrame(self.grid, text=title, padding=(12, 6, 12, 10))
+        card.grid(row=row, column=column, sticky="nsew", padx=5, pady=5)
+        return card
+
+    def _value(self, parent: tk.Misc, var: tk.StringVar, font: tuple, **kw: Any) -> ttk.Label:
+        label = ttk.Label(parent, textvariable=var, font=font, **kw)
+        label.pack(anchor=tk.W)
+        return label
+
+    def _note(self, parent: tk.Misc, var: tk.StringVar, wrap: int = 230) -> None:
+        ttk.Label(
+            parent, textvariable=var, font=SMALL, foreground=MUTED, wraplength=wrap, justify=tk.LEFT
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+    def _bar(self, parent: tk.Misc) -> ttk.Progressbar:
+        bar = ttk.Progressbar(parent, mode="determinate", maximum=100, length=200)
+        bar.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
+        return bar
+
     def _build_ui(self) -> None:
-        header = ttk.Frame(self.root, padding=(12, 10))
-        header.pack(fill=tk.X)
-        self._header = header
+        self.grid = ttk.Frame(self.root, padding=(8, 8, 8, 0))
+        self.grid.pack(fill=tk.BOTH, expand=True)
+        for col in range(3):
+            self.grid.columnconfigure(col, weight=1, uniform="cards")
+        for row in range(3):
+            self.grid.rowconfigure(row, weight=1)
 
-        values = ttk.Frame(header)
-        values.pack(fill=tk.X)
+        # Fila 1: lo que se conduce
+        card = self._card("Velocidad", 0, 0)
+        self.speed_var = tk.StringVar(value="—")
+        row = ttk.Frame(card)
+        row.pack(anchor=tk.W)
+        ttk.Label(row, textvariable=self.speed_var, font=BIG).pack(side=tk.LEFT)
+        ttk.Label(row, text=" km/h", font=SMALL, foreground=MUTED).pack(side=tk.LEFT, anchor=tk.S, pady=6)
+        self.vmax_var = tk.StringVar(value="máx 0.0 km/h")
+        self._note(card, self.vmax_var)
 
-        speed_col = ttk.Frame(values)
-        speed_col.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(speed_col, text="Velocidad", font=("Segoe UI", 11)).pack(anchor=tk.W)
-        self.speed_var = tk.StringVar(value="— km/h")
-        ttk.Label(
-            speed_col,
-            textvariable=self.speed_var,
-            font=("Segoe UI", 26, "bold"),
-        ).pack(anchor=tk.W, pady=(2, 0))
+        card = self._card("Gas", 0, 1)
+        self.gas_var = tk.StringVar(value="—")
+        self._value(card, self.gas_var, BIG, foreground="#6a3d9a")
+        self.gas_bar = self._bar(card)
+        self.gas_advice_var = tk.StringVar(value="")
+        self._note(card, self.gas_advice_var)
 
-        fuel_col = ttk.Frame(values)
-        fuel_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(24, 0))
-        ttk.Label(fuel_col, text="Combustible", font=("Segoe UI", 11)).pack(anchor=tk.W)
-        self.fuel_var = tk.StringVar(value="— %")
-        ttk.Label(
-            fuel_col,
-            textvariable=self.fuel_var,
-            font=("Segoe UI", 26, "bold"),
-            foreground="#c45c00",
-        ).pack(anchor=tk.W, pady=(2, 0))
+        card = self._card("Combustible", 0, 2)
+        self.fuel_var = tk.StringVar(value="—")
+        self._value(card, self.fuel_var, MID, foreground="#c45c00")
+        self.fuel_bar = self._bar(card)
 
-        terrain_col = ttk.Frame(values)
-        terrain_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(24, 0))
-        ttk.Label(terrain_col, text="Terreno", font=("Segoe UI", 11)).pack(anchor=tk.W)
+        # Fila 2: contexto
+        card = self._card("Terreno", 1, 0)
         self.terrain_var = tk.StringVar(value="—")
-        ttk.Label(
-            terrain_col,
-            textvariable=self.terrain_var,
-            font=("Segoe UI", 18, "bold"),
-            foreground="#2d6a4f",
-        ).pack(anchor=tk.W, pady=(2, 0))
+        self._value(card, self.terrain_var, MID, foreground="#2d6a4f")
         self.terrain_detail_var = tk.StringVar(value="")
-        ttk.Label(
-            terrain_col,
-            textvariable=self.terrain_detail_var,
-            font=("Segoe UI", 10),
-            foreground="#555",
-        ).pack(anchor=tk.W)
+        self._note(card, self.terrain_detail_var)
 
-        meta = ttk.Frame(header)
-        meta.pack(fill=tk.X, pady=(8, 0))
-        self.vehicle_var = tk.StringVar(value="vehicle_id: —")
-        self.source_var = tk.StringVar(value="fuente: —")
+        card = self._card("Camión", 1, 1)
+        self.vehicle_var = tk.StringVar(value="—")
+        self._value(card, self.vehicle_var, ("Segoe UI", 12, "bold"))
+        self.source_var = tk.StringVar(value="")
+        self._note(card, self.source_var)
+
+        card = self._card("Grabación", 1, 2)
+        self.rec_var = tk.StringVar(value="No se graba")
+        self._value(card, self.rec_var, ("Segoe UI", 12, "bold"))
+        self.rec_detail_var = tk.StringVar(
+            value="" if self._recorder is None else self._recorder.path.name
+        )
+        self._note(card, self.rec_detail_var)
+        if self._recorder is not None:
+            self.rec_var.set("● REC  0 filas")
+
+        # Fila 3: física derivada
+        card = self._card("Inclinación", 2, 0)
+        self.tilt_var = tk.StringVar(value="—")
+        self._value(card, self.tilt_var, MID, foreground="#1f5f8b")
+        self.tilt_detail_var = tk.StringVar(value="")
+        self._note(card, self.tilt_detail_var)
+
+        card = self._card("Aceleración neta", 2, 1)
+        self.accel_var = tk.StringVar(value="—")
+        self._value(card, self.accel_var, MID, foreground="#a02c5d")
+        self.accel_detail_var = tk.StringVar(value="")
+        self._note(card, self.accel_detail_var)
+
+        card = self._card("Consumo", 2, 2)
+        self.cons_var = tk.StringVar(value="—")
+        self._value(card, self.cons_var, MID, foreground="#c45c00")
+        self.cons_detail_var = tk.StringVar(value="")
+        self._note(card, self.cons_detail_var)
+
+        # Barra inferior
         self.compare_var = tk.StringVar(value="")
-        ttk.Label(meta, textvariable=self.vehicle_var).pack(side=tk.LEFT)
-        ttk.Label(meta, textvariable=self.source_var).pack(side=tk.LEFT, padx=(16, 0))
+        if self.compare_csv:
+            ttk.Label(
+                self.root, textvariable=self.compare_var, font=("Segoe UI", 9), wraplength=780
+            ).pack(anchor=tk.W, padx=14)
+            self.compare_var.set("Modo comparar: agente vs CSV (necesita run_api.bat + grabar_ce.py)")
 
-        compare_row = ttk.Frame(header)
-        compare_row.pack(fill=tk.X, pady=(4, 0))
-        ttk.Label(
-            compare_row,
-            textvariable=self.compare_var,
-            font=("Segoe UI", 9),
-            foreground="#444",
-            wraplength=860,
-        ).pack(anchor=tk.W)
-
-        self.status_var = tk.StringVar(value="Conectando…")
-        ttk.Label(header, textvariable=self.status_var, foreground="#555").pack(
-            anchor=tk.W, pady=(6, 0)
-        )
-
-        self.chart_frame = ttk.Frame(self.root, padding=(8, 0, 8, 8))
-        self.chart_frame.pack(fill=tk.BOTH, expand=True)
-
-        self.figure = self._Figure(figsize=(7.8, 3.8), dpi=100)
-        self.ax = self.figure.add_subplot(111)
-        self.ax.set_title("Histórico")
-        self.ax.set_xlabel("Tiempo (s)")
-        self.ax.grid(True, alpha=0.35)
-        (self.speed_line,) = self.ax.plot(
-            [], [], color="#1f77b4", linewidth=2, marker="o", markersize=3, label="speed_kmh"
-        )
-
-        self.ax_fuel = self.ax.twinx()
-        (self.fuel_line,) = self.ax_fuel.plot(
-            [], [], color="#c45c00", linewidth=2, marker="o", markersize=3, label="fuel_pct"
-        )
-        self.figure.tight_layout()
-
-        self.canvas = self._FigureCanvasTkAgg(self.figure, master=self.chart_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        footer = ttk.Frame(self.root, padding=(12, 0, 12, 10))
+        footer = ttk.Frame(self.root, padding=(12, 4, 12, 10))
         footer.pack(fill=tk.X)
-
         self.pause_btn = ttk.Button(footer, text="Pausar", command=self._toggle_pause)
         self.pause_btn.pack(side=tk.LEFT)
-
-        ttk.Button(footer, text="Limpiar", command=self._clear_history).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
-
-        self.history_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            footer,
-            text="Histórico",
-            variable=self.history_var,
-            command=self._toggle_history,
-        ).pack(side=tk.LEFT, padx=(12, 0))
-
-        ttk.Label(footer, text="Gráfico:").pack(side=tk.LEFT, padx=(12, 0))
-        self.chart_metric_var = tk.StringVar(value=CHART_METRIC_LABELS[self.chart_metric])
-        self.metric_combo = ttk.Combobox(
-            footer,
-            textvariable=self.chart_metric_var,
-            values=[CHART_METRIC_LABELS[key] for key in CHART_METRICS],
-            width=14,
-            state="readonly",
-        )
-        self.metric_combo.pack(side=tk.LEFT, padx=(4, 0))
-        self.metric_combo.bind("<<ComboboxSelected>>", self._on_chart_metric_changed)
-
-        footer_label: str = (
-            f"Fuente: {self.source_mode}"
-            if self.source_mode == "agent"
-            else f"API: {self.base_url}"
-        )
-        ttk.Label(footer, text=footer_label).pack(side=tk.RIGHT)
-
-        self.status_var.set(
-            "Leyendo agente C# (SnowRunner en mapa)"
+        ttk.Button(footer, text="Reiniciar máx", command=self._reset_vmax).pack(side=tk.LEFT, padx=(8, 0))
+        self.status_var = tk.StringVar(
+            value="Leyendo agente C# (SnowRunner en mapa)"
             if self.source_mode == "agent"
             else f"Poll API {self.base_url}/v1/sample"
         )
-        if self.compare_csv:
-            self.compare_var.set(
-                "Modo comparar: agente vs CSV (necesita run_api.bat + grabar_ce.py activo)"
-            )
+        ttk.Label(footer, textvariable=self.status_var, foreground=MUTED).pack(side=tk.RIGHT)
 
-    def _on_chart_metric_changed(self, _event: object | None = None) -> None:
-        self.chart_metric = normalize_chart_metric(self.chart_metric_var.get())
-        if self.show_history:
-            self._refresh_chart()
-
-    def _toggle_history(self) -> None:
-        self.show_history = self.history_var.get()
-        self.metric_combo.configure(state="readonly" if self.show_history else "disabled")
-        if self.show_history:
-            self.chart_frame.pack(fill=tk.BOTH, expand=True, after=self._header)
-            self._refresh_chart()
-        else:
-            self.chart_frame.pack_forget()
+    # ----------------------------------------------------------- acciones
 
     def _toggle_pause(self) -> None:
         self.running = not self.running
         self.pause_btn.configure(text="Reanudar" if not self.running else "Pausar")
         self.status_var.set("Pausado" if not self.running else "Reanudado")
 
-    def _clear_history(self) -> None:
-        self.times.clear()
-        self.speeds.clear()
-        self.fuels.clear()
-        self.started = time.monotonic()
-        if self.show_history:
-            self._refresh_chart()
+    def _reset_vmax(self) -> None:
+        self.vmax = 0.0
+        self.vmax_var.set("máx 0.0 km/h")
 
     def _on_close(self) -> None:
-        if self._agent is not None:
-            self._agent.stop()
-        if self._compare_agent is not None:
-            self._compare_agent.stop()
+        for agent in (self._agent, self._compare_agent):
+            if agent is not None:
+                agent.stop()
+        if self._recorder is not None:
+            self._recorder.close()
         self.root.destroy()
+
+    # ------------------------------------------------------------- bucle
 
     def _tick(self) -> None:
         if self.running:
             self._poll()
-        if self.show_history:
-            self._refresh_chart()
         self.root.after(self.interval_ms, self._tick)
 
     def _read_sample(self) -> dict[str, Any]:
@@ -261,63 +223,43 @@ class SpeedDashboard:
             self.status_var.set("Respuesta sin speed_kmh válido")
             return
 
-        fuel = parse_optional_float(sample, "fuel_pct")
-        fuel_liters = parse_optional_float(sample, "fuel_liters")
-        self.times.append(time.monotonic() - self.started)
-        self.speeds.append(speed)
-        self.fuels.append(fuel)
+        if self._recorder is not None:
+            if self.source_mode != "agent":
+                self._recorder.write(sample)  # fuente API: se graba al ritmo de la ventana
+            n = self._recorder.count
+            self.rec_var.set(f"● REC  {n} fila{'' if n == 1 else 's'}")
 
-        self.speed_var.set(f"{speed:.2f} km/h")
-        if fuel is not None and fuel_liters is not None:
-            self.fuel_var.set(f"{fuel:.1f} % ({fuel_liters:.1f} L)")
-        elif fuel is not None:
-            self.fuel_var.set(f"{fuel:.1f} %")
-        else:
-            self.fuel_var.set("— %")
-
-        terrain_kind = str(sample.get("terrain_kind") or "").strip()
-        mud_label = str(sample.get("mud_grade_label") or "").strip()
-        wheel_grip = parse_optional_float(sample, "wheel_grip")
-        contact_avg = parse_optional_float(sample, "contact_avg")
-        wheel_count = sample.get("wheel_count")
-        if terrain_kind:
-            title = terrain_kind.upper()
-            if mud_label and mud_label != terrain_kind:
-                title = f"{title} ({mud_label.replace('_', ' ')})"
-            self.terrain_var.set(title)
-            detail_parts: list[str] = []
-            surface_avg = parse_optional_float(sample, "surface_avg")
-            if wheel_grip is not None:
-                detail_parts.append(f"grip {wheel_grip:.2f}")
-            if surface_avg is not None:
-                detail_parts.append(f"surface {surface_avg:.2f}")
-            elif contact_avg is not None:
-                detail_parts.append(f"contact {contact_avg:.2f}")
-            if wheel_count not in (None, "", 0):
-                detail_parts.append(f"{wheel_count} ruedas")
-            self.terrain_detail_var.set(" · ".join(detail_parts))
-        else:
-            self.terrain_var.set("—")
-            self.terrain_detail_var.set("sin terrain_kind (¿juego abierto?)")
+        seq = sample.get("sample_seq")
+        if seq is None or seq != self._last_seq:  # una muestra repetida no debe recalcular nada
+            ts = sample.get("ts_ms")
+            now = float(ts) / 1000.0 if isinstance(ts, (int, float)) else time.monotonic()
+            self._last_metrics = self._live.update(sample, now)
+            self._last_seq = seq
+        view = build_view(sample, speed, self._ideal_table, self._last_metrics)
+        self.vmax = max(self.vmax, speed)
+        self.speed_var.set(view.speed_text)
+        self.vmax_var.set(f"máx {self.vmax:.1f} km/h")
+        self.gas_var.set(view.gas_text)
+        self.gas_bar["value"] = view.gas_pct or 0
+        self.gas_advice_var.set(view.gas_advice)
+        self.fuel_var.set(view.fuel_text)
+        self.fuel_bar["value"] = view.fuel_pct or 0
+        self.terrain_var.set(view.terrain_title)
+        self.terrain_detail_var.set(view.terrain_detail)
+        self.vehicle_var.set(view.vehicle)
+        self.source_var.set(f"fuente: {view.source}")
+        self.tilt_var.set(view.tilt_text)
+        self.tilt_detail_var.set(view.tilt_detail)
+        self.accel_var.set(view.accel_text)
+        self.accel_detail_var.set(view.accel_detail)
+        self.cons_var.set(view.consumption_text)
+        self.cons_detail_var.set(view.consumption_detail)
 
         if self.compare_csv:
             self._update_compare(sample)
 
-        vehicle_id = str(sample.get("vehicle_id") or "—")
-        fuel_source = str(sample.get("fuel_source") or "")
-        sample_seq = sample.get("sample_seq")
-        if self.source_mode == "agent":
-            data_source = fuel_source or str(sample.get("throttle_input_src") or "agent")
-        else:
-            data_source = str(sample.get("source") or sample.get("schema_version") or "—")
-        self.vehicle_var.set(f"vehicle_id: {vehicle_id}")
-        self.source_var.set(f"fuente: {data_source}")
-
-        fuel_pts = sum(1 for value in self.fuels if value is not None)
-        fuel_note = f" · fuel {fuel_pts} pts" if fuel_pts else " · sin fuel_pct"
-        seq_note = f" · seq {sample_seq}" if sample_seq else ""
         self.status_var.set(
-            f"OK — {len(self.speeds)} pts{fuel_note}{seq_note} · {self.source_mode} · {self.interval_ms} ms"
+            f"OK · {self.source_mode} · {self.interval_ms} ms" + (f" · seq {seq}" if seq else "")
         )
 
     def _update_compare(self, primary_sample: dict[str, Any]) -> None:
@@ -339,95 +281,6 @@ class SpeedDashboard:
                 return
 
         self.compare_var.set(compare_terrain(agent_sample, api_sample))
-
-    def _series_xy(
-        self, values: deque[float] | deque[float | None]
-    ) -> tuple[list[float], list[float]]:
-        if not self.times:
-            return [], []
-        t0 = self.times[0]
-        xs: list[float] = []
-        ys: list[float] = []
-        for t, value in zip(self.times, values, strict=False):
-            if value is None or (isinstance(value, float) and math.isnan(value)):
-                continue
-            xs.append(t - t0)
-            ys.append(float(value))
-        return xs, ys
-
-    def _set_xlim(self, xs: list[float]) -> None:
-        if not xs:
-            return
-        span = max(xs[-1] - xs[0], 1.0) if len(xs) > 1 else max(xs[-1], 1.0)
-        self.ax.set_xlim(xs[0], xs[0] + span)
-
-    def _set_ylim(self, axis: Any, ys: list[float], *, floor_zero: bool = True) -> None:
-        if not ys:
-            return
-        ymin, ymax = min(ys), max(ys)
-        pad = 5.0 if ymax <= 5.0 else max(2.0, ymax * 0.1)
-        if ymin == ymax:
-            lo = max(0.0, ymin - pad) if floor_zero else ymin - pad
-            axis.set_ylim(lo, ymax + pad)
-        else:
-            lo = max(0.0, ymin - pad * 0.2) if floor_zero else ymin - pad * 0.2
-            axis.set_ylim(lo, ymax + pad * 0.2)
-
-    def _refresh_chart(self) -> None:
-        metric = self.chart_metric
-        show_speed = metric in ("speed_kmh", "both")
-        show_fuel = metric in ("fuel_pct", "both")
-
-        speed_xs, speed_ys = self._series_xy(self.speeds)
-        fuel_xs, fuel_ys = self._series_xy(self.fuels)
-
-        self.speed_line.set_data(speed_xs, speed_ys)
-        self.fuel_line.set_data(fuel_xs, fuel_ys)
-        self.speed_line.set_visible(show_speed and bool(speed_ys))
-        self.fuel_line.set_visible(show_fuel and bool(fuel_ys))
-
-        if show_speed and show_fuel:
-            self.ax.set_ylabel("km/h", color="#1f77b4")
-            self.ax.tick_params(axis="y", labelcolor="#1f77b4", labelleft=True)
-            self.ax_fuel.set_ylabel("fuel_pct", color="#c45c00")
-            self.ax_fuel.tick_params(axis="y", labelcolor="#c45c00", labelright=True)
-            self.ax_fuel.set_visible(True)
-            if speed_ys:
-                self._set_ylim(self.ax, speed_ys)
-            if fuel_ys:
-                fmin, fmax = min(fuel_ys), max(fuel_ys)
-                if fmin == fmax:
-                    self.ax_fuel.set_ylim(max(0.0, fmin - 5.0), min(100.0, fmax + 5.0))
-                else:
-                    self.ax_fuel.set_ylim(max(0.0, fmin - 3.0), min(100.0, fmax + 3.0))
-            else:
-                self.ax_fuel.set_ylim(0, 100)
-            title = "Histórico — velocidad + combustible"
-            xlim_xs = speed_xs or fuel_xs
-        elif show_fuel:
-            self.ax.set_ylabel("fuel_pct", color="#c45c00")
-            self.ax.tick_params(axis="y", labelcolor="#c45c00", labelleft=True)
-            self.ax_fuel.set_visible(False)
-            if fuel_ys:
-                fmin, fmax = min(fuel_ys), max(fuel_ys)
-                if fmin == fmax:
-                    self.ax.set_ylim(max(0.0, fmin - 5.0), min(100.0, fmax + 5.0))
-                else:
-                    self.ax.set_ylim(max(0.0, fmin - 3.0), min(100.0, fmax + 3.0))
-            title = "Histórico — combustible" if fuel_ys else "Histórico — sin datos fuel_pct"
-            xlim_xs = fuel_xs
-        else:
-            self.ax.set_ylabel("km/h", color="#1f77b4")
-            self.ax.tick_params(axis="y", labelcolor="#1f77b4", labelleft=True)
-            self.ax_fuel.set_visible(False)
-            if speed_ys:
-                self._set_ylim(self.ax, speed_ys)
-            title = "Histórico — velocidad"
-            xlim_xs = speed_xs
-
-        self.ax.set_title(title)
-        self._set_xlim(xlim_xs)
-        self.canvas.draw_idle()
 
     def run(self) -> None:
         self.root.mainloop()

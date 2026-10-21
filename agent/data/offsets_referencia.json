@@ -1,6 +1,6 @@
 {
   "source": "agent --find-singletons (Bandit) + desplazamiento +0x4060 — build Steam 2026-09-03",
-  "game_version": "Steam update sep-2026; initial.pak 29073408 B; SnowRunner.exe 2026-09-03",
+  "game_version": "Steam oct-2026; SnowRunner.exe 46808616 B (2026-10-21 00:30); initial.pak 29925376 B; offsets de sep-2026 validados sin cambios",
   "module": "SnowRunner.exe",
   "singletons": {
     "TRUCK_CONTROL": "0x2A92E38",
@@ -24,6 +24,7 @@
       "source": "CE pointerscan usuario validado jul-2026 — varios camiones, coincide HUD",
       "module_offset": "0x2A92E40",
       "offsets": ["0x8", "0x68", "0x30", "0x2B0", "0xA8", "0xD0", "0x5E8"],
+      "capacity_delta": "0x8",
       "field_kind": "f32",
       "note": "exe+2A8EDE0 (+8 respecto TRUCK_CONTROL 0x2A8EDD8). Cadena CE: +8→+68→+30→+2B0→+A8→+D0→f32+5E8. Validado multi-vehículo vs HUD."
     },
@@ -88,6 +89,8 @@
       "+0x234",
       "+0x238"
     ],
+    "rotation_columns": "+0x170",
+    "angular_velocity_xyz": "+0x240",
     "angular_velocity_y": "+0x244"
   },
   "terrain_runtime": {
@@ -154,6 +157,13 @@
     "source": "DRIVE_LOGIC singleton + veh addon — calibrar con scan_drive_state.py",
     "singleton": "SnowRunner.exe+2A8EDC8",
     "vehicle_ptr": "+0x20",
+    "throttle_game": {
+      "vehicle_ptr": "+0x68",
+      "offset": "+0x44",
+      "kind": "f32",
+      "scale": -1.0,
+      "note": "acelerador del juego [vehicle+68]+44, rango -1..0; hallado con --throttle-find (r=-0.999 vs pedal) build 2026-09-03"
+    },
     "status": "throttle+rpm calibrados 2026-07-15 veh=s_fleetstar_f2070a",
     "calibration_snaps": {
       "gas_off": "cheat_engine/drive_snaps/gas_off.json",

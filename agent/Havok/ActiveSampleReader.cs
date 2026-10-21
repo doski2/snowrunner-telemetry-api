@@ -109,8 +109,13 @@ public sealed class ActiveSampleReader
         var motor = _offsets.ThrottleMotor;
         var throttleMotor = FieldReader.ReadFieldAt(_handle, vehicle, motor.Offset, motor.Kind);
 
+        var (position, rotation) = ReadPose(rb);
         return new SpikeSample
         {
+            Position = position,
+            Rotation = rotation,
+            AngularVelocity = ReadFloats(rb + _offsets.AngularVelocityOffset, 3),
+            ThrottleGame = ReadThrottleGame(vehicle),
             Chain = chain,
             VehicleId = vehicleId,
             SpeedKmh = Math.Round(speedKmh, 2),
@@ -123,6 +128,58 @@ public sealed class ActiveSampleReader
             VelY = vy,
             VelZ = vz.Value,
         };
+    }
+
+    /// <summary>Matriz de rotación (3 columnas de 16 B) justo antes de la posición, en el cuerpo rígido.</summary>
+    private (float[]? Position, float[]? Rotation) ReadPose(nint rb)
+    {
+        var rotation = new float[9];
+        for (var col = 0; col < 3; col++)
+        {
+            if (ReadFloats(rb + _offsets.RotationOffset + (col * 16), 3) is not { } axis)
+            {
+                return (ReadFloats(rb + _offsets.PositionOffset, 3), null);
+            }
+
+            Array.Copy(axis, 0, rotation, col * 3, 3);
+        }
+
+        return (ReadFloats(rb + _offsets.PositionOffset, 3), rotation);
+    }
+
+    private float[]? ReadFloats(nint address, int count)
+    {
+        var bytes = ProcessMemoryReader.ReadBytes(_handle, address, count * 4);
+        if (bytes is null)
+        {
+            return null;
+        }
+
+        var values = new float[count];
+        for (var i = 0; i < count; i++)
+        {
+            var v = BitConverter.ToSingle(bytes, i * 4);
+            if (!float.IsFinite(v))
+            {
+                return null;
+            }
+
+            values[i] = MathF.Round(v, 4);
+        }
+
+        return values;
+    }
+
+    private double? ReadThrottleGame(nint vehicle)
+    {
+        if (ReadPointer(vehicle + _offsets.ThrottleGamePtrOffset) is not { } holder
+            || ProcessMemoryReader.ReadFloat32(_handle, holder + _offsets.ThrottleGameOffset) is not { } raw
+            || !float.IsFinite(raw))
+        {
+            return null;
+        }
+
+        return Math.Round(Math.Clamp(raw * _offsets.ThrottleGameScale, 0.0, 1.0), 3);
     }
 
     private string ReadVehicleId(nint vehicle)

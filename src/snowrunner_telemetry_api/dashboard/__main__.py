@@ -7,13 +7,12 @@ import os
 import sys
 
 from .app import SpeedDashboard
-from .metrics import CHART_METRICS, normalize_chart_metric
 from .poll import api_base_url
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Dashboard SnowRunner — histórico de speed_kmh vía GET /v1/sample",
+        description="Dashboard SnowRunner — panel en vivo (agente C# o API)",
     )
     parser.add_argument(
         "--url",
@@ -23,14 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--interval",
         type=int,
-        default=int(os.environ.get("SNOWRUNNER_DASHBOARD_INTERVAL_MS", "500")),
-        help="Intervalo de poll en ms (default: 500)",
-    )
-    parser.add_argument(
-        "--history",
-        type=int,
-        default=int(os.environ.get("SNOWRUNNER_DASHBOARD_HISTORY", "300")),
-        help="Puntos máximos en el gráfico (default: 300)",
+        default=int(os.environ.get("SNOWRUNNER_DASHBOARD_INTERVAL_MS", "150")),
+        help="Cada cuántos ms repinta la ventana (default: 150; el agente muestrea a 100 ms)",
     )
     parser.add_argument(
         "--source",
@@ -39,32 +32,28 @@ def main(argv: list[str] | None = None) -> int:
         help="auto: API si hay CSV; si no, agente C# (default: auto)",
     )
     parser.add_argument(
-        "--chart",
-        choices=CHART_METRICS,
-        default=os.environ.get("SNOWRUNNER_DASHBOARD_CHART", "speed_kmh"),
-        help="Métrica del histórico: speed_kmh, fuel_pct o both (default: speed_kmh)",
-    )
-    parser.add_argument(
         "--compare",
         action="store_true",
         help="Comparar terreno agente C# vs última fila CSV (API)",
+    )
+    parser.add_argument(
+        "--record",
+        metavar="ETIQUETA",
+        default=None,
+        help="Graba cada muestra en data/sessions/<etiqueta>_<fecha>.ndjson (se graba a la cadencia del agente, 100 ms)",
     )
     args = parser.parse_args(argv)
 
     if args.interval < 100:
         print("[dashboard] intervalo mínimo 100 ms", file=sys.stderr)
         return 2
-    if args.history < 10:
-        print("[dashboard] history mínimo 10 puntos", file=sys.stderr)
-        return 2
 
     SpeedDashboard(
         base_url=args.url.rstrip("/"),
         interval_ms=args.interval,
-        history_len=args.history,
         source=args.source,
-        chart_metric=normalize_chart_metric(args.chart),
         compare_csv=args.compare,
+        record_label=args.record,
     ).run()
     return 0
 

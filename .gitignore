@@ -17,3 +17,7 @@ agent/**/obj/
 
 # Catálogo extraído de assets del juego (regenerar con scripts/extract_game_catalog.py)
 data/game_catalog.json
+
+# Sesiones grabadas y mediciones
+data/sessions/
+data/accel_*.json

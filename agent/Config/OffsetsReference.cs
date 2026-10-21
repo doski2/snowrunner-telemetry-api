@@ -29,6 +29,9 @@ public sealed class OffsetsReference
     public int LinearVelocityX { get; init; }
     public int LinearVelocityY { get; init; }
     public int LinearVelocityZ { get; init; }
+    public int PositionOffset { get; init; } = 0x1A0;
+    public int RotationOffset { get; init; } = 0x170;
+    public int AngularVelocityOffset { get; init; } = 0x240;
     public int UiFuelSingletonOffset { get; init; }
     public int FuelLitersOffset { get; init; } = 0x82C;
     public int FuelLitersHudOffset { get; init; } = 0x420;
@@ -60,6 +63,11 @@ public sealed class OffsetsReference
     public IReadOnlyDictionary<string, DriveFieldSpec> PerVehicleThrottle { get; init; }
         = new Dictionary<string, DriveFieldSpec>();
     public DriveFieldSpec ThrottleMotor { get; init; } = DefaultThrottleMotor;
+
+    /// <summary>Acelerador que usa el juego: [vehicle+Ptr]+Offset (f32), multiplicado por Scale.</summary>
+    public int ThrottleGamePtrOffset { get; init; } = 0x68;
+    public int ThrottleGameOffset { get; init; } = 0x44;
+    public double ThrottleGameScale { get; init; } = -1.0;
     public int WheelsArrayStart { get; init; } = 0x200;
     public int WheelsArrayEnd { get; init; } = 0x208;
     public int WheelGripOffset { get; init; } = 0x2FC;
@@ -129,6 +137,9 @@ public sealed class OffsetsReference
             LinearVelocityX = RequireHex(vel[0].GetString()),
             LinearVelocityY = RequireHex(vel[1].GetString()),
             LinearVelocityZ = RequireHex(vel[2].GetString()),
+            PositionOffset = RigidBodyHex(root, "position_xyz", 0) ?? 0x1A0,
+            RotationOffset = RigidBodyHex(root, "rotation_columns") ?? 0x170,
+            AngularVelocityOffset = RigidBodyHex(root, "angular_velocity_xyz") ?? 0x240,
             UiFuelSingletonOffset = RequireHex(singletons.GetProperty("UI_FUEL_SINGLETON").GetString()),
             FuelLitersOffset = ParseHex(vehicle.GetProperty("fuel_liters_f32").GetString()) ?? 0x82C,
             FuelLitersHudOffset = ParseHex(vehicle.GetProperty("fuel_liters_u16").GetString()) ?? 0x420,
@@ -160,7 +171,31 @@ public sealed class OffsetsReference
             DefaultThrottleInput = defaultThrottle,
             PerVehicleThrottle = perVehicle,
             ThrottleMotor = throttleMotor,
+            ThrottleGamePtrOffset = ThrottleGameHex(drive, "vehicle_ptr") ?? 0x68,
+            ThrottleGameOffset = ThrottleGameHex(drive, "offset") ?? 0x44,
+            ThrottleGameScale = drive.TryGetProperty("throttle_game", out var tg)
+                && tg.TryGetProperty("scale", out var sc)
+                && sc.TryGetDouble(out var scale)
+                ? scale
+                : -1.0,
         };
+    }
+
+    private static int? ThrottleGameHex(JsonElement drive, string property) =>
+        drive.TryGetProperty("throttle_game", out var tg) && tg.TryGetProperty(property, out var value)
+            ? ParseHex(value.GetString())
+            : null;
+
+    private static int? RigidBodyHex(JsonElement root, string property, int? index = null)
+    {
+        if (!root.TryGetProperty("hkpRigidBody", out var rb) || !rb.TryGetProperty(property, out var value))
+        {
+            return null;
+        }
+
+        return ParseHex(index is { } i && value.ValueKind == JsonValueKind.Array
+            ? value[i].GetString()
+            : value.GetString());
     }
 
     private static int? TerrainHex(JsonElement terrain, string property) =>
@@ -226,6 +261,9 @@ public sealed class OffsetsReference
                 ModuleOffset = moduleOffset.Value,
                 Offsets = offsets.ToArray(),
                 ChainText = $"exe+{moduleOffset.Value:X}→{chain}",
+                CapacityDelta = el.TryGetProperty("capacity_delta", out var capDelta)
+                    ? ParseHex(capDelta.GetString()) ?? 0
+                    : 0,
             });
         }
 

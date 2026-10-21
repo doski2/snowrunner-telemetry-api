@@ -6,7 +6,11 @@ import json
 import subprocess
 import threading
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
+
+# El agente siempre muestrea rápido: la ventana solo decide cada cuánto repinta.
+AGENT_MAX_INTERVAL_MS = 100
 
 
 class AgentSampleError(Exception):
@@ -28,8 +32,13 @@ def is_agent_status_line(text: str) -> bool:
 
 
 class AgentLoopSource:
-    def __init__(self, interval_ms: int = 500) -> None:
+    def __init__(
+        self,
+        interval_ms: int = 500,
+        on_sample: Callable[[dict[str, Any]], object] | None = None,
+    ) -> None:
         self.interval_ms = interval_ms
+        self._on_sample = on_sample  # se llama por cada muestra, desde el hilo lector
         self._lock = threading.Lock()
         self._latest: dict[str, Any] | None = None
         self._error = "Iniciando agente…"
@@ -88,7 +97,7 @@ class AgentLoopSource:
                 str(dll),
                 "--",
                 "--loop",
-                f"--interval={self.interval_ms}",
+                f"--interval={min(self.interval_ms, AGENT_MAX_INTERVAL_MS)}",
                 "--memory-only",
             ],
             cwd=agent_dir,
@@ -102,6 +111,16 @@ class AgentLoopSource:
         self._thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._thread.start()
 
+    def _publish(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._latest = payload
+            self._error = ""
+        if self._on_sample is not None:
+            try:
+                self._on_sample(payload)
+            except Exception:  # noqa: BLE001 - un fallo al grabar no debe parar la lectura
+                pass
+
     def _read_stdout(self) -> None:
         assert self._proc is not None
         assert self._proc.stdout is not None
@@ -113,9 +132,7 @@ class AgentLoopSource:
                 buffer.append(line.rstrip("\n\r"))
                 payload = try_parse_json_buffer(buffer)
                 if payload is not None:
-                    with self._lock:
-                        self._latest = payload
-                        self._error = ""
+                    self._publish(payload)
                     buffer = []
                 elif len(buffer) > 120:
                     buffer = []
@@ -124,9 +141,7 @@ class AgentLoopSource:
             if stripped.startswith("{"):
                 payload = try_parse_json_buffer([stripped])
                 if payload is not None:
-                    with self._lock:
-                        self._latest = payload
-                        self._error = ""
+                    self._publish(payload)
                     continue
 
                 buffer = [line.rstrip("\n\r")]

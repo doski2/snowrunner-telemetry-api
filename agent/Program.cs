@@ -29,6 +29,11 @@ internal static partial class Program
             return ExitOk;
         }
 
+        if (HasArg(args, "--throttle-find"))
+        {
+            return RunThrottleFind(args);
+        }
+
         if (HasArg(args, "--find-singletons"))
         {
             return RunFindSingletons(args);
@@ -291,6 +296,7 @@ internal static partial class Program
         var payload = new
         {
             sample_seq = seq,
+            ts_ms = Math.Round(System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / System.Diagnostics.Stopwatch.Frequency, 1),
             probe_ok = sample.ProbeOk,
             chain = sample.Chain,
             vehicle_id = sample.VehicleId,
@@ -314,6 +320,7 @@ internal static partial class Program
             terrain_source = sample.TerrainSource,
             throttle_input = sample.ThrottleInput,
             throttle_motor = sample.ThrottleMotor,
+            throttle_game = sample.ThrottleGame,
             throttle_input_src = sample.ThrottleInputSource,
             throttle_input_memory = sample.ThrottleInputMemory,
             throttle_input_memory_src = sample.ThrottleInputMemorySource,
@@ -331,6 +338,9 @@ internal static partial class Program
             veh = sample.VehicleHex,
             rb = sample.RigidBodyHex,
             vel = new { x = sample.VelX, y = sample.VelY, z = sample.VelZ },
+            pos = sample.Position,
+            rot = sample.Rotation,
+            ang_vel = sample.AngularVelocity,
         };
 
         var jsonOpts = options.Loop ? JsonSerializerOptions.Default : JsonPretty;
