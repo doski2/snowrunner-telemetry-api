@@ -21,3 +21,10 @@ data/game_catalog.json
 # Sesiones grabadas y mediciones
 data/sessions/
 data/accel_*.json
+
+# Estado local del usuario (etiquetas de contexto y tablas calculadas)
+data/context.json
+data/ideal_throttle.json
+data/efficiency.json
+data/forward_axis.json
+data/coverage.json

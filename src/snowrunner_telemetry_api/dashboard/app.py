@@ -7,11 +7,13 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from ..context import ContextTags
 from ..physics import LiveMetrics
-from .advice import IdealThrottleTable
+from .advice import EfficiencyTable, IdealThrottleTable
 from .agent_source import AgentLoopSource, AgentSampleError
 from .poll import ApiSampleError, fetch_api_sample, parse_speed_kmh, resolve_source
-from .recorder import SessionRecorder
+from ..autorecord import PlayRecorder
+from ..coverage import CoverageTracker
 from .terrain import compare_terrain
 from .view import build_view
 
@@ -29,22 +31,36 @@ class SpeedDashboard:
         *,
         source: str = "auto",
         compare_csv: bool = False,
-        record_label: str | None = None,
+        record_label: str | None = "dash",
+        full_rows: bool = False,
+        cap_seconds: float = 0.0,
     ) -> None:
         self.base_url = base_url
         self.interval_ms = interval_ms
         self.source_mode = resolve_source(source, base_url)
         self.compare_csv = compare_csv
         self._ideal_table = IdealThrottleTable()
-        self._recorder = SessionRecorder(record_label) if record_label else None
-        if self._recorder is not None:
-            print(f"[dashboard] grabando en {self._recorder.path}")
+        self._eff_table = EfficiencyTable()
+        self._context = ContextTags()
+        self._coverage = CoverageTracker()
+        self._recorder = (
+            PlayRecorder(
+                context=self._context,
+                interval_ms=min(interval_ms, 100),
+                label=record_label,
+                slim=not full_rows,
+                coverage=self._coverage,
+                cap_seconds=cap_seconds,
+            )
+            if record_label
+            else None
+        )
 
         self._agent: AgentLoopSource | None = None
         self._compare_agent: AgentLoopSource | None = None
         if self.source_mode == "agent" or compare_csv:
             # con el agente como fuente se graba cada muestra suya, no solo las que pinta la ventana
-            on_sample = self._recorder.write if self._recorder and self.source_mode == "agent" else None
+            on_sample = self._recorder.handle if self._recorder and self.source_mode == "agent" else None
             self._agent = AgentLoopSource(interval_ms, on_sample)
             self._agent.start()
         if compare_csv and self.source_mode != "agent":
@@ -112,6 +128,8 @@ class SpeedDashboard:
         self.gas_bar = self._bar(card)
         self.gas_advice_var = tk.StringVar(value="")
         self._note(card, self.gas_advice_var)
+        self.gas_eff_var = tk.StringVar(value="")
+        self._note(card, self.gas_eff_var)
 
         card = self._card("Combustible", 0, 2)
         self.fuel_var = tk.StringVar(value="—")
@@ -130,14 +148,16 @@ class SpeedDashboard:
         self._value(card, self.vehicle_var, ("Segoe UI", 12, "bold"))
         self.source_var = tk.StringVar(value="")
         self._note(card, self.source_var)
+        self.ctx_var = tk.StringVar(value="")
+        self._note(card, self.ctx_var)
 
         card = self._card("Grabación", 1, 2)
         self.rec_var = tk.StringVar(value="No se graba")
         self._value(card, self.rec_var, ("Segoe UI", 12, "bold"))
-        self.rec_detail_var = tk.StringVar(
-            value="" if self._recorder is None else self._recorder.path.name
-        )
+        self.rec_detail_var = tk.StringVar(value="" if self._recorder is None else "esperando camión…")
         self._note(card, self.rec_detail_var)
+        self.cov_var = tk.StringVar(value="")
+        self._note(card, self.cov_var)
         if self._recorder is not None:
             self.rec_var.set("● REC  0 filas")
 
@@ -223,11 +243,19 @@ class SpeedDashboard:
             self.status_var.set("Respuesta sin speed_kmh válido")
             return
 
+        ctx = self._context.current()
         if self._recorder is not None:
             if self.source_mode != "agent":
-                self._recorder.write(sample)  # fuente API: se graba al ritmo de la ventana
-            n = self._recorder.count
+                self._recorder.handle(sample)  # fuente API: se graba al ritmo de la ventana
+            n = self._recorder.rows
             self.rec_var.set(f"● REC  {n} fila{'' if n == 1 else 's'}")
+            path = self._recorder.path
+            self.rec_detail_var.set(path.name if path else "esperando camión…")
+            self.cov_var.set(
+                self._coverage.hint(
+                    str(sample.get("vehicle_id") or ""), str(sample.get("terrain_kind") or "sin_dato"), ctx
+                )
+            )
 
         seq = sample.get("sample_seq")
         if seq is None or seq != self._last_seq:  # una muestra repetida no debe recalcular nada
@@ -235,13 +263,15 @@ class SpeedDashboard:
             now = float(ts) / 1000.0 if isinstance(ts, (int, float)) else time.monotonic()
             self._last_metrics = self._live.update(sample, now)
             self._last_seq = seq
-        view = build_view(sample, speed, self._ideal_table, self._last_metrics)
+        view = build_view(sample, speed, self._ideal_table, self._last_metrics, self._eff_table, ctx)
         self.vmax = max(self.vmax, speed)
         self.speed_var.set(view.speed_text)
         self.vmax_var.set(f"máx {self.vmax:.1f} km/h")
         self.gas_var.set(view.gas_text)
         self.gas_bar["value"] = view.gas_pct or 0
         self.gas_advice_var.set(view.gas_advice)
+        self.gas_eff_var.set(view.efficiency_advice)
+        self.ctx_var.set(", ".join(f"{k}={v}" for k, v in ctx.items()) if ctx else "sin etiquetas (set_context.py)")
         self.fuel_var.set(view.fuel_text)
         self.fuel_bar["value"] = view.fuel_pct or 0
         self.terrain_var.set(view.terrain_title)

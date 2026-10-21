@@ -13,10 +13,12 @@ import json
 import sys
 from pathlib import Path
 
+from snowrunner_telemetry_api.console import use_utf8_output
 from snowrunner_telemetry_api.analysis import analyze, compare_targets, load_rows
 
 
 def main() -> int:
+    use_utf8_output()  # consolas cp1252 de Windows
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("session", type=Path)
     ap.add_argument("--target", type=Path, help="JSON con objetivos a comparar")

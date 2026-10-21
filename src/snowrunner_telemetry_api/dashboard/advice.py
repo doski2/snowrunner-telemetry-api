@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..analysis import band_label
+from ..context import signature
 
 DEFAULT_PATH = Path(__file__).resolve().parents[3] / "data" / "ideal_throttle.json"
 MARGIN = 0.1
@@ -55,3 +56,32 @@ def format_advice(entry: dict[str, Any] | None, gas: float | None) -> str:
     if gas < lo - MARGIN:
         return f"{text} — puedes dar más"
     return f"{text} — correcto"
+
+
+EFFICIENCY_PATH = DEFAULT_PATH.with_name("efficiency.json")
+
+
+class EfficiencyTable(IdealThrottleTable):
+    """Tabla de gas más eficiente (L/100 km) por camión, terreno y etiquetas de contexto."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        super().__init__(path or EFFICIENCY_PATH)
+
+    def lookup_ctx(
+        self, vehicle_id: str, terrain_kind: str, ctx: dict[str, str] | None
+    ) -> dict[str, Any] | None:
+        self._reload()
+        key = f"{terrain_kind or 'sin_dato'}|{signature(ctx)}"
+        return (self._data.get(vehicle_id) or {}).get(key)
+
+
+def format_efficiency(entry: dict[str, Any] | None) -> str:
+    if not entry or not entry.get("most_efficient"):
+        return ""
+    lo, hi = entry["most_efficient"]
+    text = f"eficiente {lo * 100:.0f}–{hi * 100:.0f} % (~{entry['best_l_per_100km']:.0f} L/100 km)"
+    if entry.get("full_throttle_extra_pct"):
+        text += f" · a fondo +{entry['full_throttle_extra_pct']:.0f} %"
+    if entry.get("confidence") == "baja":
+        text += " · datos escasos"
+    return text

@@ -47,7 +47,7 @@ public sealed class ActiveSampleReader
 
             if (ReadSampleFromVehicle(vehicle, tag) is { } sample)
             {
-                var throttleInput = ParseThrottle(sample.ThrottleInput);
+                var throttleInput = sample.ThrottleGame ?? ParseThrottle(sample.ThrottleInput);
                 var engineOn = ParseThrottle(sample.ThrottleMotor) > 0.5;
                 var snapshot = FuelReader.ReadSnapshot(_handle, _moduleBase, _offsets, vehicle);
                 var fuel = FuelReader.ReadFuelDisplay(
@@ -64,6 +64,7 @@ public sealed class ActiveSampleReader
                 {
                     FuelPct = fuel.Pct,
                     FuelLiters = fuel.Liters ?? snapshot.Liters,
+                    FuelLitersRaw = snapshot.Liters,
                     FuelCapacityLiters = fuel.CapacityLiters ?? snapshot.CapacityLiters,
                     FuelSource = fuel.Source,
                     TerrainKind = terrain?.TerrainKind ?? "",
@@ -115,7 +116,11 @@ public sealed class ActiveSampleReader
             Position = position,
             Rotation = rotation,
             AngularVelocity = ReadFloats(rb + _offsets.AngularVelocityOffset, 3),
-            ThrottleGame = ReadThrottleGame(vehicle),
+            WheelOmega = ReadWheelField(vehicle, _offsets.WheelOmegaOffset),
+            WheelSpeed = ReadWheelField(vehicle, _offsets.WheelGroundSpeedOffset),
+            ThrottleGame = ReadDriverInput(vehicle, _offsets.ThrottleGameOffset, _offsets.ThrottleGameScale, 0.0, 1.0),
+            BrakeGame = ReadDriverInput(vehicle, _offsets.ThrottleGameOffset, -_offsets.ThrottleGameScale, 0.0, 1.0),
+            SteerGame = ReadDriverInput(vehicle, _offsets.SteerGameOffset, _offsets.ThrottleGameScale, -1.0, 1.0),
             Chain = chain,
             VehicleId = vehicleId,
             SpeedKmh = Math.Round(speedKmh, 2),
@@ -147,6 +152,32 @@ public sealed class ActiveSampleReader
         return (ReadFloats(rb + _offsets.PositionOffset, 3), rotation);
     }
 
+    /// <summary>Un f32 por rueda (mismo offset en cada objeto rueda del array del vehículo).</summary>
+    private float[]? ReadWheelField(nint vehicle, int fieldOffset)
+    {
+        if (ProcessMemoryReader.ReadUInt64(_handle, vehicle + _offsets.WheelsArrayStart) is not { } start
+            || ProcessMemoryReader.ReadUInt64(_handle, vehicle + _offsets.WheelsArrayEnd) is not { } end
+            || start < 0x10000 || end <= start)
+        {
+            return null;
+        }
+
+        var count = (int)Math.Min((end - start) / 8, 16);
+        var values = new float[count];
+        for (var i = 0; i < count; i++)
+        {
+            if (ReadPointer((nint)start + (i * 8)) is not { } wheel
+                || ReadFloats(wheel + fieldOffset, 1) is not { } v)
+            {
+                return null;
+            }
+
+            values[i] = v[0];
+        }
+
+        return values;
+    }
+
     private float[]? ReadFloats(nint address, int count)
     {
         var bytes = ProcessMemoryReader.ReadBytes(_handle, address, count * 4);
@@ -170,16 +201,21 @@ public sealed class ActiveSampleReader
         return values;
     }
 
-    private double? ReadThrottleGame(nint vehicle)
+    /// <summary>
+    /// Entrada del conductor en [[vehicle+Ptr]+offset] (f32 normalizado). Gas y freno comparten el campo
+    /// (negativo = gas, positivo = freno/marcha atrás); el volante está junto a él. `sign` y los límites
+    /// seleccionan cada magnitud.
+    /// </summary>
+    private double? ReadDriverInput(nint vehicle, int fieldOffset, double sign, double lo, double hi)
     {
         if (ReadPointer(vehicle + _offsets.ThrottleGamePtrOffset) is not { } holder
-            || ProcessMemoryReader.ReadFloat32(_handle, holder + _offsets.ThrottleGameOffset) is not { } raw
+            || ProcessMemoryReader.ReadFloat32(_handle, holder + fieldOffset) is not { } raw
             || !float.IsFinite(raw))
         {
             return null;
         }
 
-        return Math.Round(Math.Clamp(raw * _offsets.ThrottleGameScale, 0.0, 1.0), 3);
+        return Math.Round(Math.Clamp(raw * sign, lo, hi), 3);
     }
 
     private string ReadVehicleId(nint vehicle)

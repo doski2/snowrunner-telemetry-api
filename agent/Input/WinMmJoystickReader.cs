@@ -20,6 +20,16 @@ public static class WinMmJoystickReader
     private const int MinRejectedScore = -50;
     private const int MaxJoyId = 16;
     private const uint JoyReturnR = 0x00000008;
+    private const uint JoyReturnAll = 0x000000FF;
+
+    /// <summary>Ejes crudos [X, Y, Z, R, U, V] del mando indicado (0..65535), o null si no responde.</summary>
+    public static uint[]? ReadAxes(int joyId)
+    {
+        var info = new JoyInfoEx { dwSize = (uint)Marshal.SizeOf<JoyInfoEx>(), dwFlags = JoyReturnAll };
+        return joyGetPosEx(joyId, ref info) == 0
+            ? [info.dwXpos, info.dwYpos, info.dwZpos, info.dwRpos, info.dwUpos, info.dwVpos]
+            : null;
+    }
 
     public static WinMmThrottleSample Read()
     {

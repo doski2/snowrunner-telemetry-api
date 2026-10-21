@@ -32,6 +32,8 @@ public sealed class OffsetsReference
     public int PositionOffset { get; init; } = 0x1A0;
     public int RotationOffset { get; init; } = 0x170;
     public int AngularVelocityOffset { get; init; } = 0x240;
+    public int WheelOmegaOffset { get; init; } = 0x2D0;
+    public int WheelGroundSpeedOffset { get; init; } = 0x2DC;
     public int UiFuelSingletonOffset { get; init; }
     public int FuelLitersOffset { get; init; } = 0x82C;
     public int FuelLitersHudOffset { get; init; } = 0x420;
@@ -68,6 +70,7 @@ public sealed class OffsetsReference
     public int ThrottleGamePtrOffset { get; init; } = 0x68;
     public int ThrottleGameOffset { get; init; } = 0x44;
     public double ThrottleGameScale { get; init; } = -1.0;
+    public int SteerGameOffset { get; init; } = 0x40;
     public int WheelsArrayStart { get; init; } = 0x200;
     public int WheelsArrayEnd { get; init; } = 0x208;
     public int WheelGripOffset { get; init; } = 0x2FC;
@@ -140,6 +143,8 @@ public sealed class OffsetsReference
             PositionOffset = RigidBodyHex(root, "position_xyz", 0) ?? 0x1A0,
             RotationOffset = RigidBodyHex(root, "rotation_columns") ?? 0x170,
             AngularVelocityOffset = RigidBodyHex(root, "angular_velocity_xyz") ?? 0x240,
+            WheelOmegaOffset = WheelRuntimeHex(root, "angular_velocity") ?? 0x2D0,
+            WheelGroundSpeedOffset = WheelRuntimeHex(root, "ground_speed") ?? 0x2DC,
             UiFuelSingletonOffset = RequireHex(singletons.GetProperty("UI_FUEL_SINGLETON").GetString()),
             FuelLitersOffset = ParseHex(vehicle.GetProperty("fuel_liters_f32").GetString()) ?? 0x82C,
             FuelLitersHudOffset = ParseHex(vehicle.GetProperty("fuel_liters_u16").GetString()) ?? 0x420,
@@ -173,6 +178,7 @@ public sealed class OffsetsReference
             ThrottleMotor = throttleMotor,
             ThrottleGamePtrOffset = ThrottleGameHex(drive, "vehicle_ptr") ?? 0x68,
             ThrottleGameOffset = ThrottleGameHex(drive, "offset") ?? 0x44,
+            SteerGameOffset = ThrottleGameHex(drive, "steer_offset") ?? 0x40,
             ThrottleGameScale = drive.TryGetProperty("throttle_game", out var tg)
                 && tg.TryGetProperty("scale", out var sc)
                 && sc.TryGetDouble(out var scale)
@@ -197,6 +203,11 @@ public sealed class OffsetsReference
             ? value[i].GetString()
             : value.GetString());
     }
+
+    private static int? WheelRuntimeHex(JsonElement root, string property) =>
+        root.TryGetProperty("wheel_kinematics", out var wk) && wk.TryGetProperty(property, out var value)
+            ? ParseHex(value.GetString())
+            : null;
 
     private static int? TerrainHex(JsonElement terrain, string property) =>
         terrain.ValueKind == JsonValueKind.Object

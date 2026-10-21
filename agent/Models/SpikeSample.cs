@@ -8,6 +8,8 @@ public sealed record SpikeSample
     public string ThrottleInput { get; init; } = "";
     public string ThrottleMotor { get; init; } = "";
     public double? ThrottleGame { get; init; }
+    public double? BrakeGame { get; init; }
+    public double? SteerGame { get; init; }
     public string ThrottleInputSource { get; init; } = "none";
     public string ThrottleInputMemory { get; init; } = "";
     public string ThrottleInputMemorySource { get; init; } = "none";
@@ -28,8 +30,11 @@ public sealed record SpikeSample
     public float[]? Position { get; init; }
     public float[]? Rotation { get; init; }
     public float[]? AngularVelocity { get; init; }
+    public float[]? WheelOmega { get; init; }
+    public float[]? WheelSpeed { get; init; }
     public double? FuelPct { get; init; }
     public double? FuelLiters { get; init; }
+    public double? FuelLitersRaw { get; init; }
     public int? FuelCapacityLiters { get; init; }
     public string FuelSource { get; init; } = "";
     public string TerrainKind { get; init; } = "";

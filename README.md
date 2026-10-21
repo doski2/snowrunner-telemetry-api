@@ -52,7 +52,7 @@ combustible, terreno, camión y estado de grabación.
 ```powershell
 ```
 
-Opciones: `--interval=150 --url=http://127.0.0.1:8765 --record=ETIQUETA` (`--record` guarda cada
+Opciones: `--interval=150 --url=http://127.0.0.1:8765`. **Graba solo** en `data/sessions/` (un fichero por camión, fila mínima, a 100 ms): `--record=PREFIJO` cambia el prefijo, `--no-record` lo desactiva, `--full-rows` guarda todos los campos del agente y `--cap-seconds=120` aligera las situaciones ya cubiertas. No lo ejecutes a la vez que `record_play.bat`: cada uno lanza su propio agente.
 muestra del agente, a 100 ms, en `data/sessions/`).
 
 ## Tests

@@ -39,8 +39,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--record",
         metavar="ETIQUETA",
-        default=None,
-        help="Graba cada muestra en data/sessions/<etiqueta>_<fecha>.ndjson (se graba a la cadencia del agente, 100 ms)",
+        default="dash",
+        help="Prefijo de los ficheros de data/sessions (default: dash). Se graba siempre, a 100 ms, un fichero por camión",
+    )
+    parser.add_argument("--no-record", action="store_true", help="No grabar")
+    parser.add_argument("--full-rows", action="store_true", help="Grabar todos los campos del agente (3× más grande)")
+    parser.add_argument(
+        "--cap-seconds",
+        type=float,
+        default=0.0,
+        help="Situación ya cubierta con N s: guardar solo 1 de cada 5 filas (default: 0 = nunca aligerar)",
     )
     args = parser.parse_args(argv)
 
@@ -53,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
         interval_ms=args.interval,
         source=args.source,
         compare_csv=args.compare,
-        record_label=args.record,
+        record_label=None if args.no_record else args.record,
+        full_rows=args.full_rows,
+        cap_seconds=args.cap_seconds,
     ).run()
     return 0
 

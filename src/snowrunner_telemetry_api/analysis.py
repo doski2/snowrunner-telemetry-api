@@ -2,21 +2,50 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from . import physics
+from .context import signature
 
 SPEED_THRESHOLDS_KMH = (20, 40, 60, 80)
 START_KMH = 1.0
 IDLE_KMH = 0.5
 
 
+def open_session(path: Path):
+    """Abre una sesión como texto, sea `.ndjson` o `.ndjson.gz`."""
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8")
+    return path.open(encoding="utf-8")
+
+
+def session_files(folder: Path) -> list[Path]:
+    return sorted([*folder.glob("*.ndjson"), *folder.glob("*.ndjson.gz")])
+
+
+def compress_session(path: Path) -> Path:
+    """Comprime `x.ndjson` a `x.ndjson.gz`; solo borra el original si el resultado se lee igual."""
+    target = path.with_name(path.name + ".gz")
+    before = path.read_bytes()
+    with gzip.open(target, "wb", compresslevel=6) as out:
+        out.write(before)
+    with gzip.open(target, "rb") as check:
+        if check.read() != before:
+            target.unlink(missing_ok=True)
+            raise OSError(f"la compresión de {path.name} no coincide con el original")
+    path.unlink()
+    return target
+
+
 def load_rows(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    with open_session(path) as fh:
+        lines = fh.read().splitlines()
+    for line in lines:
         line = line.strip()
         if not line:
             continue
@@ -58,12 +87,21 @@ def enrich(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def load_meta(path: Path) -> dict[str, Any]:
     """Cabecera `_meta` de una sesión (vacía si no existe)."""
-    with path.open(encoding="utf-8") as fh:
+    with open_session(path) as fh:
         first = fh.readline().strip()
     try:
         return json.loads(first).get("_meta", {}) if first else {}
     except json.JSONDecodeError:
         return {}
+
+
+def fuel_value(row: dict[str, Any]) -> tuple[float | None, bool]:
+    """(litros, es_lectura_directa). `fuel_liters` lo interpola un modelo del agente entre lecturas
+    reales (no depende del gas real), así que solo `fuel_liters_raw` vale para medir consumo."""
+    raw = _num(row, "fuel_liters_raw")
+    if raw is not None:
+        return raw, True
+    return _num(row, "fuel_liters"), False
 
 
 def _num(row: dict[str, Any], key: str) -> float | None:
@@ -105,7 +143,7 @@ def fuel(rows: list[dict[str, Any]], kind: str | None = None) -> dict[str, Any]:
     secs = {"idle": 0.0, "moving": 0.0}
     prev: tuple[float, float, float, str] | None = None
     for row in rows:
-        t, liters, speed = _num(row, "t"), _num(row, "fuel_liters"), _num(row, "speed_kmh")
+        t, (liters, _), speed = _num(row, "t"), fuel_value(row), _num(row, "speed_kmh")
         if t is None or liters is None or speed is None:
             continue
         here = str(row.get("terrain_kind") or "sin_dato")
@@ -154,14 +192,16 @@ def band_label(speed: float) -> str:
 
 def accel_points(rows: list[dict[str, Any]]) -> list[tuple[str, str, float, float]]:
     """(terreno, banda, gas, aceleración km/h/s) con derivada centrada de 2 pasos."""
-    points = []
+    points: list[tuple[str, str, float, float]] = []
     for k in range(len(rows) - 2):
         a, b = rows[k], rows[k + 2]
         t0, t1 = _num(a, "t"), _num(b, "t")
         v0, v1 = _num(a, "speed_kmh"), _num(b, "speed_kmh")
         gas = _num(rows[k + 1], "throttle_game")
         mid = _num(rows[k + 1], "speed_kmh")
-        if None in (t0, t1, v0, v1, gas, mid) or not 0.1 <= t1 - t0 <= 1.0:
+        if t0 is None or t1 is None or v0 is None or v1 is None or gas is None or mid is None:
+            continue
+        if not 0.1 <= t1 - t0 <= 1.0:
             continue
         kind = str(rows[k + 1].get("terrain_kind") or "sin_dato")
         a_net = _num(rows[k + 1], "a_net_ms2")  # corregida por pendiente (km/h/s = m/s² × 3,6)
@@ -265,6 +305,129 @@ def profile_report(sessions: list[list[dict[str, Any]]]) -> dict[str, Any]:
                 else None
             ),
         }
+    return report
+
+
+# --- Eficiencia: L/100 km y avance por tramo de gas, terreno y contexto -------------------------
+
+EFFICIENCY_BINS = ((0.05, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 0.95), (0.95, 1.01))
+MIN_BIN_SECONDS = 10.0
+MIN_BIN_DISTANCE_M = 30.0
+HIGH_SLIP = 0.3  # patinaje medio > 30 % = tracción perdida
+MAX_JUMP_M = 50.0  # saltos mayores (carga de mapa, recuperación) no cuentan como distancia
+
+
+def efficiency_bin_label(index: int) -> str:
+    lo, hi = EFFICIENCY_BINS[index]
+    return f"{lo:.2f}-{min(hi, 1.0):.2f}"
+
+
+def _step_distance(prev: dict[str, Any], row: dict[str, Any], dt: float) -> float:
+    a, b = prev.get("pos"), row.get("pos")
+    if isinstance(a, list) and isinstance(b, list) and len(a) == 3 and len(b) == 3:
+        step = sum((float(x) - float(y)) ** 2 for x, y in zip(a, b)) ** 0.5
+        if step <= MAX_JUMP_M:
+            return step
+    speed = _num(prev, "speed_kmh") or 0.0
+    return speed / 3.6 * dt
+
+
+def efficiency_report(sessions: list[list[dict[str, Any]]]) -> dict[str, Any]:
+    """Por «terreno | contexto»: consumo por distancia y avance en cada tramo de gas.
+
+    El gas más eficiente es el de menor L/100 km entre los tramos con datos suficientes. Incluye
+    cobertura (qué tramos faltan) y una confianza orientativa.
+    """
+    acc: dict[tuple[str, str], dict[int, dict[str, float]]] = {}
+    for rows in sessions:
+        enriched = enrich(rows)
+        for prev, row in zip(enriched, enriched[1:]):
+            t0, t1 = _num(prev, "t"), _num(row, "t")
+            gas = _num(prev, "throttle_game")
+            (f0, direct0), (f1, direct1) = fuel_value(prev), fuel_value(row)
+            if t0 is None or t1 is None or gas is None or f0 is None or f1 is None:
+                continue
+            dt = t1 - t0
+            if not 0 < dt <= MAX_GAP_S or f1 > f0 + 1e-6:  # hueco largo o repostaje
+                continue
+            idx = next((i for i, (lo, hi) in enumerate(EFFICIENCY_BINS) if lo <= gas < hi), None)
+            if idx is None:
+                continue
+            key = (str(prev.get("terrain_kind") or "sin_dato"), signature(prev.get("ctx")))
+            b = acc.setdefault(key, {}).setdefault(
+                idx,
+                {
+                    "seconds": 0.0, "distance": 0.0, "liters": 0.0, "speed_s": 0.0, "a_s": 0.0,
+                    "a_dt": 0.0, "slip_s": 0.0, "slip_dt": 0.0, "slip_hi_dt": 0.0, "direct_dt": 0.0,
+                },
+            )
+            b["seconds"] += dt
+            b["direct_dt"] += dt if direct0 and direct1 else 0.0
+            b["distance"] += _step_distance(prev, row, dt)
+            b["liters"] += f0 - f1
+            b["speed_s"] += (_num(prev, "speed_kmh") or 0.0) * dt
+            a_net = _num(prev, "a_net_ms2")
+            if a_net is not None:
+                b["a_s"] += a_net * dt
+                b["a_dt"] += dt
+            slip = _num(prev, "slip_mean")
+            if slip is not None:
+                b["slip_s"] += slip * dt
+                b["slip_dt"] += dt
+                if slip > HIGH_SLIP:
+                    b["slip_hi_dt"] += dt
+
+    report: dict[str, Any] = {}
+    for (kind, ctx), bins in sorted(acc.items()):
+        entry_bins: dict[str, Any] = {}
+        valid: dict[int, float] = {}
+        for i in range(len(EFFICIENCY_BINS)):
+            b = bins.get(i)
+            if b is None:
+                continue
+            l100 = b["liters"] * 100000.0 / b["distance"] if b["distance"] > 1.0 else None
+            enough = b["seconds"] >= MIN_BIN_SECONDS and b["distance"] >= MIN_BIN_DISTANCE_M and b["liters"] > 0
+            if enough and l100 is not None:
+                valid[i] = l100
+            entry_bins[efficiency_bin_label(i)] = {
+                "seconds": round(b["seconds"], 1),
+                "distance_m": round(b["distance"], 1),
+                "liters": round(b["liters"], 3),
+                "l_per_100km": round(l100, 1) if l100 is not None else None,
+                "mean_speed_kmh": round(b["speed_s"] / b["seconds"], 1),
+                "mean_a_net_ms2": round(b["a_s"] / b["a_dt"], 2) if b["a_dt"] else None,
+                "mean_slip": round(b["slip_s"] / b["slip_dt"], 3) if b["slip_dt"] else None,
+                "high_slip_share": round(b["slip_hi_dt"] / b["slip_dt"], 2) if b["slip_dt"] else None,
+                "enough_data": enough,
+            }
+        direct_share = sum(b["direct_dt"] for b in bins.values()) / max(1e-9, sum(b["seconds"] for b in bins.values()))
+        entry: dict[str, Any] = {
+            # «memoria» = lectura directa; «modelo» = interpolado por el agente (no fiable para eficiencia)
+            "fuel_basis": "memoria" if direct_share > 0.9 else "modelo",
+            "bins": entry_bins,
+            # cobertura por tiempo: qué tramos de gas conviene seguir grabando
+            "missing_bins": [
+                efficiency_bin_label(i)
+                for i in range(len(EFFICIENCY_BINS))
+                if bins.get(i, {}).get("seconds", 0.0) < MIN_BIN_SECONDS
+            ],
+            "most_efficient": None,
+        }
+        if valid:
+            best = min(valid, key=lambda i: valid[i])
+            lo, hi = EFFICIENCY_BINS[best]
+            entry["most_efficient"] = [lo, min(hi, 1.0)]
+            entry["best_l_per_100km"] = round(valid[best], 1)
+            top = len(EFFICIENCY_BINS) - 1
+            if top in valid and top != best:
+                entry["full_throttle_extra_pct"] = round((valid[top] / valid[best] - 1) * 100, 0)
+            seconds_best = bins[best]["seconds"]
+            entry["confidence"] = (
+                "alta" if len(valid) >= 3 and seconds_best >= 60 else "media" if len(valid) >= 2 else "baja"
+            )
+        else:
+            entry["confidence"] = "sin datos suficientes"
+        report[f"{kind}|{ctx}"] = entry
     return report
 
 

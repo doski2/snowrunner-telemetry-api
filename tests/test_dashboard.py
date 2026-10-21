@@ -246,3 +246,22 @@ def test_agent_source_callback_error_does_not_break_reader():
     source = AgentLoopSource(500, on_sample=boom)
     source._publish({"sample_seq": 1, "speed_kmh": 5.0})
     assert source.latest()["speed_kmh"] == 5.0
+
+
+def test_efficiency_advice_in_view(tmp_path):
+    import json
+
+    from snowrunner_telemetry_api.dashboard.advice import EfficiencyTable, IdealThrottleTable
+    from snowrunner_telemetry_api.dashboard.view import build_view
+
+    eff = tmp_path / "e.json"
+    eff.write_text(json.dumps({"s_x": {"mud|carga=vacio": {
+        "most_efficient": [0.5, 0.75], "best_l_per_100km": 38.2,
+        "full_throttle_extra_pct": 35, "confidence": "baja"}}}))
+    table = EfficiencyTable(eff)
+    sample = {"vehicle_id": "s_x", "terrain_kind": "mud", "throttle_game": 0.6}
+    view = build_view(sample, 5.0, IdealThrottleTable(tmp_path / "n.json"), None, table, {"carga": "vacio"})
+    assert view.efficiency_advice == "eficiente 50–75 % (~38 L/100 km) · a fondo +35 % · datos escasos"
+    # otro contexto -> sin consejo (no mezclar situaciones distintas)
+    other = build_view(sample, 5.0, IdealThrottleTable(tmp_path / "n.json"), None, table, {"carga": "bastidor"})
+    assert other.efficiency_advice == ""

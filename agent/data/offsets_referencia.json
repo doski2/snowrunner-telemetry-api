@@ -93,6 +93,11 @@
     "angular_velocity_xyz": "+0x240",
     "angular_velocity_y": "+0x244"
   },
+  "wheel_kinematics": {
+    "angular_velocity": "+0x2D0",
+    "ground_speed": "+0x2DC",
+    "note": "por rueda (objeto del array vehicle+0x200); hallado con --wheel-find en sep/oct-2026: +2DC r=0.98 con la velocidad, +2D0 ~ velocidad angular (rad/s). Pendiente de validar la unidad"
+  },
   "terrain_runtime": {
     "source": "TRUCK_WHEEL_MODEL por rueda — NO lee capas del mapa .pak",
     "grip_per_wheel": "+0x2FC",
@@ -161,6 +166,7 @@
       "vehicle_ptr": "+0x68",
       "offset": "+0x44",
       "kind": "f32",
+      "steer_offset": "+0x40",
       "scale": -1.0,
       "note": "acelerador del juego [vehicle+68]+44, rango -1..0; hallado con --throttle-find (r=-0.999 vs pedal) build 2026-09-03"
     },

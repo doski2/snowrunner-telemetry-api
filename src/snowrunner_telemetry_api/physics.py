@@ -17,6 +17,10 @@ G = 9.80665
 MIN_MOVING_KMH = 3.0
 MIN_SAMPLES_FOR_AXIS = 25
 FUEL_WINDOW_S = 20.0
+MIN_SLIP_SPEED_MS = 1.0  # por debajo, v/ω es ruido: no se calcula patinaje
+MIN_OMEGA = 0.3
+SLIP_DENOM_FLOOR_MS = 2.0  # a baja velocidad (ω·R − v) / v se dispara por ruido: se divide por al menos esto
+MIN_RADIUS_SAMPLES = 60
 MAX_GAP_S = 2.0
 AXIS_PRIOR_PATH = Path(__file__).resolve().parents[2] / "data" / "forward_axis.json"
 
@@ -84,7 +88,7 @@ def pose(sample: dict[str, Any], axis: tuple[int, int]) -> dict[str, float] | No
     up = cols[up_idx]
     if up[1] < 0:
         up = (-up[0], -up[1], -up[2])
-    right = _cross(up, fwd)
+    right = _cross(fwd, up)  # en un sistema dextrógiro con Y arriba, adelante × arriba = derecha
     pitch = math.asin(max(-1.0, min(1.0, fwd[1])))
     roll = math.asin(max(-1.0, min(1.0, right[1])))
     return {
@@ -134,6 +138,7 @@ class LiveMetrics:
         self._hist: deque[tuple[float, float, float | None]] = deque(maxlen=200)
         self._last_pos: Vec | None = None
         self.distance_m = 0.0
+        self._radii: deque[float] = deque(maxlen=800)
 
     def reset_vehicle(self, vehicle: str) -> None:
         self.vehicle = vehicle
@@ -142,6 +147,7 @@ class LiveMetrics:
         self._hist.clear()
         self._last_pos = None
         self.distance_m = 0.0
+        self._radii.clear()
 
     def update(self, sample: dict[str, Any], t: float) -> dict[str, Any]:
         vehicle = str(sample.get("vehicle_id") or "")
@@ -167,6 +173,7 @@ class LiveMetrics:
                 out.update(p)
                 self._track_accel(out, sample, t)
 
+        out.update(self._wheel_slip(sample, out.get("v_long_ms")))
         pos = sample.get("pos")
         if isinstance(pos, list) and len(pos) == 3:
             cur = (float(pos[0]), float(pos[1]), float(pos[2]))
@@ -179,9 +186,34 @@ class LiveMetrics:
         out.update(self._fuel_rates(sample, t))
         return out
 
+    def _wheel_slip(self, sample: dict[str, Any], v_long: float | None) -> dict[str, float]:
+        """Patinaje estimado por rueda: (ω·R − v) / max(v, 2 m/s). R (radio efectivo) se calibra con el camión."""
+        omega = sample.get("w_omega")
+        if v_long is None or not isinstance(omega, list) or not omega or v_long < MIN_SLIP_SPEED_MS:
+            return {}
+        try:
+            omegas = [float(w) for w in omega]
+        except (TypeError, ValueError):
+            return {}
+        self._radii.extend(v_long / w for w in omegas if w > MIN_OMEGA)
+        if len(self._radii) < MIN_RADIUS_SAMPLES:
+            return {}
+        radius = sorted(self._radii)[len(self._radii) // 2]
+        over = [w * radius - v_long for w in omegas]  # exceso de giro de cada rueda, m/s
+        denom = max(v_long, SLIP_DENOM_FLOOR_MS)
+        slips = [o / denom for o in over]
+        return {
+            "wheel_radius_m": radius,
+            "slip_mean": sum(slips) / len(slips),
+            "slip_max": max(slips),
+            "slip_over_max_ms": max(over),
+        }
+
     def _track_accel(self, out: dict[str, Any], sample: dict[str, Any], t: float) -> None:
         v_long = out["v_long_ms"]
-        self._hist.append((t, v_long, _float(sample.get("fuel_liters"))))
+        # lectura directa de memoria si existe; `fuel_liters` está interpolado por un modelo del agente
+        fuel = _float(sample.get("fuel_liters_raw"))
+        self._hist.append((t, v_long, fuel if fuel is not None else _float(sample.get("fuel_liters"))))
         window = [h for h in self._hist if t - h[0] <= 0.5]
         if len(window) >= 2 and window[-1][0] - window[0][0] >= 0.2:
             a = (window[-1][1] - window[0][1]) / (window[-1][0] - window[0][0])

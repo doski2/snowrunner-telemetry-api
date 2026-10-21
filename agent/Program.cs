@@ -29,6 +29,16 @@ internal static partial class Program
             return ExitOk;
         }
 
+        if (HasArg(args, "--wheel-find"))
+        {
+            return RunWheelFind(args);
+        }
+
+        if (HasArg(args, "--state-diff"))
+        {
+            return RunStateDiff(args);
+        }
+
         if (HasArg(args, "--throttle-find"))
         {
             return RunThrottleFind(args);
@@ -303,6 +313,7 @@ internal static partial class Program
             speed_kmh = sample.SpeedKmh,
             fuel_pct = sample.FuelPct,
             fuel_liters = sample.FuelLiters,
+            fuel_liters_raw = sample.FuelLitersRaw,
             fuel_cap_liters = sample.FuelCapacityLiters,
             fuel_source = sample.FuelSource,
             terrain_kind = sample.TerrainKind,
@@ -321,6 +332,8 @@ internal static partial class Program
             throttle_input = sample.ThrottleInput,
             throttle_motor = sample.ThrottleMotor,
             throttle_game = sample.ThrottleGame,
+            brake_game = sample.BrakeGame,
+            steer_game = sample.SteerGame,
             throttle_input_src = sample.ThrottleInputSource,
             throttle_input_memory = sample.ThrottleInputMemory,
             throttle_input_memory_src = sample.ThrottleInputMemorySource,
@@ -341,6 +354,8 @@ internal static partial class Program
             pos = sample.Position,
             rot = sample.Rotation,
             ang_vel = sample.AngularVelocity,
+            w_omega = sample.WheelOmega,
+            w_speed = sample.WheelSpeed,
         };
 
         var jsonOpts = options.Loop ? JsonSerializerOptions.Default : JsonPretty;

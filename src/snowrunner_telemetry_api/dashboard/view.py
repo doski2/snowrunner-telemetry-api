@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .advice import IdealThrottleTable, format_advice
+from .advice import EfficiencyTable, IdealThrottleTable, format_advice, format_efficiency
 from .poll import parse_optional_float
 
 
@@ -27,6 +27,7 @@ class LiveView:
     accel_detail: str = ""
     consumption_text: str = "—"
     consumption_detail: str = ""
+    efficiency_advice: str = ""
 
 
 def _fuel_text(pct: float | None, liters: float | None, capacity: float | None) -> str:
@@ -73,6 +74,8 @@ def _dynamics(m: dict[str, Any]) -> dict[str, str]:
         detail = f"medida {m.get('a_long_ms2', 0.0):+.1f}"
         if "lat_g" in m:
             detail += f" · lateral {abs(m['lat_g']):.2f} g"
+        if "slip_mean" in m:
+            detail += f" · patinaje {m['slip_mean'] * 100:+.0f} %"
         out["accel_detail"] = detail
     if "fuel_l_per_h" in m:
         out["consumption_text"] = f"{m['fuel_l_per_h']:.1f} L/h"
@@ -91,6 +94,8 @@ def build_view(
     speed: float,
     table: IdealThrottleTable,
     metrics: dict[str, Any] | None = None,
+    efficiency: EfficiencyTable | None = None,
+    ctx: dict[str, str] | None = None,
 ) -> LiveView:
     gas = parse_optional_float(sample, "throttle_game")
     kind = str(sample.get("terrain_kind") or "").strip()
@@ -119,5 +124,8 @@ def build_view(
         terrain_detail=detail,
         vehicle=vehicle or "—",
         source=str(sample.get("fuel_source") or sample.get("source") or sample.get("schema_version") or "—"),
+        efficiency_advice=(
+            format_efficiency(efficiency.lookup_ctx(vehicle, kind, ctx)) if efficiency is not None else ""
+        ),
         **_dynamics(metrics or {}),
     )

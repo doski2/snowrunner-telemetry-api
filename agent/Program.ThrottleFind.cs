@@ -34,7 +34,9 @@ internal static partial class Program
     private static int RunThrottleFind(string[] args)
     {
         var seconds = ParseIntArg(args, "--duration=", 30, static v => v is > 3 and < 600);
-        var intervalMs = ParseIntArg(args, "--interval=", 100, static v => v >= 20);
+        var deep = HasArg(args, "--deep");
+        var intervalMs = ParseIntArg(args, "--interval=", deep ? 250 : 100, static v => v >= 20);
+        var axisIndex = ParseAxisArg(args);
 
         if (GameSession.TryLoadOffsets(out var offsets) != ExitOk || offsets is null)
         {
@@ -54,7 +56,7 @@ internal static partial class Program
             var accs = new Dictionary<string, CorrAcc>();
             double n = 0, sy = 0, syy = 0, rawMin = double.MaxValue, rawMax = double.MinValue;
 
-            Console.WriteLine($"[throttle-find] {seconds} s: pisa y suelta el acelerador a fondo, varias veces.");
+            Console.WriteLine($"[throttle-find] {seconds} s, eje {"XYZRUV"[axisIndex]}{(deep ? " (profundo)" : "")}: mueve el control a fondo, varias veces.");
             var end = DateTime.UtcNow.AddSeconds(seconds);
             while (DateTime.UtcNow < end)
             {
@@ -66,7 +68,13 @@ internal static partial class Program
                     continue;
                 }
 
-                double y = pedal.RawAxis;
+                double y = axisIndex == 3 ? pedal.RawAxis : WinMmJoystickReader.ReadAxes(pedal.JoyId)?[axisIndex] ?? double.NaN;
+                if (double.IsNaN(y))
+                {
+                    Thread.Sleep(intervalMs);
+                    continue;
+                }
+
                 n++;
                 sy += y;
                 syy += y * y;
@@ -74,15 +82,11 @@ internal static partial class Program
                 rawMax = Math.Max(rawMax, y);
 
                 var vehicle = GameSession.ParseVehicle(sample);
-                AddBlock(accs, "veh", handle, vehicle, 0x1000, y);
-                AddBlock(accs, "tc", handle, ReadValidPointer(handle, moduleBase + offsets.TruckControlOffset) ?? 0, 0x400, y);
-                AddBlock(accs, "dl", handle, ReadValidPointer(handle, moduleBase + offsets.DriveLogicOffset) ?? 0, 0x400, y);
-                for (var p = 0; p < 0x400; p += 8)
+                var tc = ReadValidPointer(handle, moduleBase + offsets.TruckControlOffset) ?? 0;
+                var dl = ReadValidPointer(handle, moduleBase + offsets.DriveLogicOffset) ?? 0;
+                foreach (var (label, address, size) in EnumerateBlocks(handle, vehicle, tc, dl, deep))
                 {
-                    if (ReadValidPointer(handle, vehicle + p) is { } child)
-                    {
-                        AddBlock(accs, $"veh+{p:X}->", handle, child, 0x200, y);
-                    }
+                    AddBlock(accs, label, handle, address, size, y);
                 }
 
                 Thread.Sleep(intervalMs);
@@ -116,6 +120,55 @@ internal static partial class Program
             }
 
             return ExitOk;
+        }
+    }
+
+    private static int ParseAxisArg(string[] args)
+    {
+        foreach (var arg in args)
+        {
+            if (arg.StartsWith("--axis=", StringComparison.OrdinalIgnoreCase) && arg.Length > 7)
+            {
+                var idx = "XYZRUV".IndexOf(char.ToUpperInvariant(arg[7]));
+                if (idx >= 0)
+                {
+                    return idx;
+                }
+            }
+        }
+
+        return 3; // R: el acelerador del volante
+    }
+
+    /// <summary>Bloques de memoria del vehículo a explorar; con <paramref name="deep"/> también los nietos.</summary>
+    private static IEnumerable<(string Label, nint Address, int Size)> EnumerateBlocks(
+        nint handle, nint vehicle, nint truckControl, nint driveLogic, bool deep)
+    {
+        yield return ("veh", vehicle, 0x1000);
+        yield return ("tc", truckControl, 0x400);
+        yield return ("dl", driveLogic, 0x400);
+        var seen = new HashSet<nint> { vehicle, truckControl, driveLogic };
+        for (var p = 0; p < 0x400; p += 8)
+        {
+            if (ReadValidPointer(handle, vehicle + p) is not { } child || !seen.Add(child))
+            {
+                continue;
+            }
+
+            yield return ($"veh+{p:X}->", child, 0x200);
+            if (!deep || ProcessMemoryReader.ReadBytes(handle, child, 0x200) is not { } slots)
+            {
+                continue;
+            }
+
+            for (var q = 0; q < 0x200; q += 8)
+            {
+                var raw = BinaryPrimitives.ReadUInt64LittleEndian(slots.AsSpan(q, 8));
+                if (raw is > 0x10000 and < 0x7FFFFFFFFFFF && seen.Add((nint)raw))
+                {
+                    yield return ($"veh+{p:X}->+{q:X}->", (nint)raw, 0x80);
+                }
+            }
         }
     }
 

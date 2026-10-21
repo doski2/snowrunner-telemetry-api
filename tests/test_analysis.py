@@ -1,4 +1,6 @@
-from snowrunner_telemetry_api.analysis import analyze, compare_targets
+import pytest
+
+from snowrunner_telemetry_api.analysis import analyze, compare_targets, load_rows
 from snowrunner_telemetry_api.dashboard.recorder import SessionRecorder
 
 
@@ -158,3 +160,105 @@ def test_meta_header_and_agent_clock(tmp_path):
     assert load_meta(rec.path)["initial_pak"]["sha1"] == "abc"
     rows = load_rows(rec.path)
     assert len(rows) == 2 and rows[1]["t"] == 0.1  # reloj del agente, no el de lectura
+
+
+def _eff_session(plan, ctx=None, terrain="mud", reps=1):
+    """plan: [(gas, m/s, L/s)] — 12 s por tramo a 10 Hz, avanzando en línea recta."""
+    rows, t, z, fuel = [], 0.0, 0.0, 100.0
+    for gas, speed, burn in plan:
+        for _ in range(120 * reps):
+            rows.append({"t": round(t, 2), "speed_kmh": speed * 3.6, "throttle_game": gas,
+                         "terrain_kind": terrain, "fuel_liters": fuel, "pos": [0.0, 0.0, z],
+                         "vehicle_id": "s_x", **({"ctx": ctx} if ctx else {})})
+            t += 0.1
+            z += speed * 0.1
+            fuel -= burn * 0.1
+    return rows
+
+
+def test_efficiency_picks_lowest_l_per_100km_not_lowest_l_per_h():
+    from snowrunner_telemetry_api.analysis import efficiency_report
+
+    # poco gas: gasta menos por hora pero avanza muy poco -> peor por distancia
+    rows = _eff_session([(0.15, 0.5, 0.004), (0.4, 3.0, 0.006), (0.6, 4.0, 0.0085), (0.85, 4.5, 0.012), (1.0, 4.6, 0.02)], reps=6)
+    entry = efficiency_report([rows])["mud|sin etiqueta"]
+    assert entry["most_efficient"] == [0.25, 0.5]
+    assert entry["bins"]["0.05-0.25"]["l_per_100km"] > entry["bins"]["0.25-0.50"]["l_per_100km"]
+    assert entry["full_throttle_extra_pct"] > 100
+    assert entry["missing_bins"] == []  # hay tiempo en todos los tramos, aunque el 1.º apenas avance
+    assert entry["confidence"] == "alta"
+
+
+def test_efficiency_separates_context_and_reports_missing_bins():
+    from snowrunner_telemetry_api.analysis import efficiency_report
+
+    vacio = _eff_session([(0.6, 4.0, 0.008), (1.0, 4.6, 0.016)], ctx={"carga": "vacio"})
+    carga = _eff_session([(0.6, 3.0, 0.010)], ctx={"carga": "bastidor"})
+    report = efficiency_report([vacio, carga])
+    assert set(report) == {"mud|carga=vacio", "mud|carga=bastidor"}
+    assert report["mud|carga=bastidor"]["confidence"] == "baja"
+    assert "0.05-0.25" in report["mud|carga=vacio"]["missing_bins"]
+
+
+def test_efficiency_ignores_refuel_and_gaps():
+    from snowrunner_telemetry_api.analysis import efficiency_report
+
+    rows = _eff_session([(0.6, 4.0, 0.008)])
+    for r in rows[60:]:
+        r["fuel_liters"] += 50  # repostaje a mitad: ese intervalo no debe contar
+    entry = efficiency_report([rows])["mud|sin etiqueta"]
+    assert entry["bins"]["0.50-0.75"]["liters"] < 1.0
+
+
+def test_context_tags_roundtrip_and_hot_reload(tmp_path):
+    from snowrunner_telemetry_api.context import ContextTags, parse_pairs, signature
+
+    tags = ContextTags(tmp_path / "c.json")
+    assert tags.current() == {} and signature({}) == "sin etiqueta"
+    tags.update(parse_pairs(["carga=vacio", "neumaticos = Ultima AT I"]))
+    assert tags.current() == {"carga": "vacio", "neumaticos": "Ultima AT I"}
+    assert signature(tags.current()) == "carga=vacio, neumaticos=Ultima AT I"
+    tags.unset(["carga"])
+    assert tags.current() == {"neumaticos": "Ultima AT I"}
+    with pytest.raises(ValueError):
+        parse_pairs(["sin_igual"])
+
+
+def test_recorder_writes_context_per_row(tmp_path):
+    from snowrunner_telemetry_api.context import ContextTags
+    from snowrunner_telemetry_api.dashboard.recorder import SessionRecorder
+
+    tags = ContextTags(tmp_path / "c.json")
+    rec = SessionRecorder("x", tmp_path, context=tags)
+    rec.write({"sample_seq": 1, "speed_kmh": 1})
+    tags.update({"carga": "bastidor"})  # cambio en caliente
+    rec.write({"sample_seq": 2, "speed_kmh": 2})
+    rec.close()
+    rows = load_rows(rec.path)
+    assert "ctx" not in rows[0] and rows[1]["ctx"] == {"carga": "bastidor"}
+
+
+def test_efficiency_reports_slip_per_gas_bin():
+    from snowrunner_telemetry_api.analysis import efficiency_report
+
+    rows = _eff_session([(0.6, 4.0, 0.0085), (1.0, 4.6, 0.02)], reps=2)
+    for r in rows:  # a fondo patina el 40 %; a gas medio, 5 %
+        r["slip_mean"] = 0.4 if r["throttle_game"] >= 0.95 else 0.05
+    e = efficiency_report([rows])["mud|sin etiqueta"]
+    assert e["bins"]["0.95-1.00"]["mean_slip"] == 0.4 and e["bins"]["0.95-1.00"]["high_slip_share"] == 1.0
+    assert e["bins"]["0.50-0.75"]["mean_slip"] == 0.05 and e["bins"]["0.50-0.75"]["high_slip_share"] == 0.0
+
+
+def test_efficiency_prefers_raw_fuel_and_flags_modelled_fuel():
+    from snowrunner_telemetry_api.analysis import efficiency_report
+
+    modelled = _eff_session([(0.6, 4.0, 0.0085)], reps=2)
+    assert efficiency_report([modelled])["mud|sin etiqueta"]["fuel_basis"] == "modelo"
+
+    direct = _eff_session([(0.6, 4.0, 0.0085)], reps=2)
+    for r in direct:  # el valor interpolado miente (no baja); el directo es el real
+        r["fuel_liters_raw"] = r["fuel_liters"]
+        r["fuel_liters"] = 100.0
+    e = efficiency_report([direct])["mud|sin etiqueta"]
+    assert e["fuel_basis"] == "memoria"
+    assert e["bins"]["0.50-0.75"]["liters"] == pytest.approx(0.204, abs=0.01)  # el directo; el interpolado daría 0

@@ -41,12 +41,22 @@ def test_forward_axis_needs_enough_moving_samples():
     assert P.detect_forward_axis([_sample(_rot(0), 5.0, 0) for _ in range(5)]) is None
 
 
+def _pose(pitch_deg: float) -> dict[str, float]:
+    result = P.pose(_sample(_rot(pitch_deg), 5.0, pitch_deg), (2, 1))
+    assert result is not None
+    return result
+
+
 def test_pose_pitch_and_slope():
-    p = P.pose(_sample(_rot(10), 5.0, 10), (2, 1))
+    p = _pose(10)
     assert p["pitch_deg"] == pytest.approx(10, abs=1e-6)
     assert p["slope_pct"] == pytest.approx(math.tan(math.radians(10)) * 100, abs=1e-6)
     assert p["v_long_ms"] == pytest.approx(5.0, abs=1e-6)
-    assert P.pose(_sample(_rot(-6), 5.0, -6), (2, 1))["pitch_deg"] == pytest.approx(-6, abs=1e-6)
+    assert _pose(-6)["pitch_deg"] == pytest.approx(-6, abs=1e-6)
+
+
+def test_pose_needs_rotation():
+    assert P.pose({"vel": {"x": 0, "y": 0, "z": 1}}, (2, 1)) is None
 
 
 def test_net_accel_adds_gravity_component_uphill():
@@ -108,3 +118,56 @@ def test_live_metrics_uses_prior_until_verified(tmp_path, monkeypatch):
     live.axis = (2, 1)
     out = live.update(_sample(_rot(7), 4.0, 7, vehicle_id="a"), t=0.0)
     assert out["pitch_deg"] == pytest.approx(7, abs=1e-6)  # ya hay cabeceo antes de verificar
+
+
+def _wheel_sample(i, v, radius, slip=0.0, n=4):
+    omega = v * (1 + slip) / radius
+    return _sample(_rot(0), v, 0, vehicle_id="s_x", w_omega=[omega] * n, t=i * 0.1)
+
+
+def test_wheel_radius_calibrates_and_slip_is_measured(tmp_path, monkeypatch):
+    monkeypatch.setattr(P, "AXIS_PRIOR_PATH", tmp_path / "a.json")
+    live = P.LiveMetrics()
+    live.axis = (2, 1)
+    out = {}
+    for i in range(80):  # rodadura limpia: calibra el radio
+        out = live.update(_wheel_sample(i, 3.0, 0.44), t=i * 0.1)
+    assert out["wheel_radius_m"] == pytest.approx(0.44, abs=1e-6)
+    assert out["slip_mean"] == pytest.approx(0.0, abs=1e-6)
+    out = live.update(_wheel_sample(81, 3.0, 0.44, slip=0.5), t=8.1)  # ruedas giran 50 % de más
+    assert out["slip_mean"] == pytest.approx(0.5, abs=0.02)
+    assert out["slip_max"] >= out["slip_mean"]
+
+
+def test_no_slip_when_slow_or_uncalibrated(tmp_path, monkeypatch):
+    monkeypatch.setattr(P, "AXIS_PRIOR_PATH", tmp_path / "a.json")
+    live = P.LiveMetrics()
+    live.axis = (2, 1)
+    assert "slip_mean" not in live.update(_wheel_sample(0, 3.0, 0.44), t=0.0)  # aún sin calibrar
+    for i in range(80):
+        live.update(_wheel_sample(i, 3.0, 0.44), t=i * 0.1)
+    assert "slip_mean" not in live.update(_wheel_sample(90, 0.4, 0.44, slip=2.0), t=9.0)  # casi parado
+
+
+def test_roll_positive_when_right_side_is_up():
+    # adelante = +Z, arriba = +Y; en un sistema dextrógiro la derecha es adelante × arriba = (-1, 0, 0)
+    th = math.radians(10)
+    right = (-math.cos(th), math.sin(th), 0.0)  # costado derecho levantado 10°
+    up = (math.sin(th), math.cos(th), 0.0)
+    rot = [*up, *right, 0.0, 0.0, 1.0]  # columna 2 = delantera
+    p = P.pose({"rot": rot, "vel": {"x": 0, "y": 0, "z": 3.0}}, (2, 1))
+    assert p is not None and p["roll_deg"] == pytest.approx(10, abs=1e-6)
+    assert p["pitch_deg"] == pytest.approx(0, abs=1e-6)
+
+
+def test_slip_denominator_floor_avoids_blowup_at_low_speed(tmp_path, monkeypatch):
+    monkeypatch.setattr(P, "AXIS_PRIOR_PATH", tmp_path / "a.json")
+    live = P.LiveMetrics()
+    live.axis = (2, 1)
+    for i in range(80):
+        live.update(_wheel_sample(i, 3.0, 0.44), t=i * 0.1)
+    # a 1,2 m/s las ruedas van 0,6 m/s de más: antes 50 %, ahora 0,6 / 2,0 = 30 %
+    omega = (1.2 + 0.6) / 0.44
+    out = live.update(_sample(_rot(0), 1.2, 0, vehicle_id="s_x", w_omega=[omega] * 4, t=9.0), t=9.0)
+    assert out["slip_mean"] == pytest.approx(0.3, abs=0.01)
+    assert out["slip_over_max_ms"] == pytest.approx(0.6, abs=0.02)

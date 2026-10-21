@@ -17,7 +17,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .dashboard.recorder import SessionRecorder
+from .context import ContextTags
+from .coverage import CoverageTracker
+from .dashboard.recorder import SLIM_FIELDS, SessionRecorder
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "agent" / "SnowrunnerTelemetryAgent.csproj"
@@ -93,9 +95,27 @@ class PlayRecorder:
     """Un fichero por camión: al cambiar de vehicle_id cierra el anterior y abre otro."""
 
     def __init__(
-        self, directory: Path | None = None, keep_idle_s: float = 2.0, interval_ms: int = 100
+        self,
+        directory: Path | None = None,
+        keep_idle_s: float = 2.0,
+        interval_ms: int = 100,
+        context: ContextTags | None = None,
+        *,
+        label: str = "play",
+        slim: bool = True,
+        coverage: CoverageTracker | None = None,
+        cap_seconds: float = 0.0,
+        keep_ratio: int = 5,
     ) -> None:
         self.directory = directory
+        self._context = context
+        self._label = label
+        self._fields = SLIM_FIELDS if slim else None
+        self.coverage = coverage
+        self.cap_seconds = cap_seconds  # 0 = sin tope
+        self.keep_ratio = max(1, keep_ratio)
+        self._cap_counter: dict[tuple[str, ...], int] = {}
+        self.skipped_capped = 0
         self.interval_ms = interval_ms
         self._meta: dict[str, Any] | None = None
         self._thin = IdleThinner(keep_idle_s)
@@ -111,17 +131,43 @@ class PlayRecorder:
             self.close()
             if self._meta is None:  # el hash del pak se calcula una vez por arranque
                 self._meta = session_meta(self.interval_ms)
-            self._rec = SessionRecorder(f"play_{vehicle}", self.directory, self._meta)
+            self._rec = SessionRecorder(
+                f"{self._label}_{vehicle}", self.directory, self._meta, self._context, self._fields
+            )
             self._vehicle = vehicle
             print(f"[autorecord] {vehicle} -> {self._rec.path}", flush=True)
-        if not self._thin.keep(sample, time.monotonic() if now is None else now):
+        t = time.monotonic() if now is None else now
+        ctx = self._context.current() if self._context is not None else {}
+        if self.coverage is not None:  # cuenta el tiempo real aunque luego se aligere la fila
+            self.coverage.update(sample, ctx, t)
+            self.coverage.maybe_save(t)
+        if not self._thin.keep(sample, t) or self._capped(sample, ctx):
             return False
         assert self._rec is not None
         wrote = self._rec.write(sample)
         self.rows += int(wrote)
         return wrote
 
+    def _capped(self, sample: dict[str, Any], ctx: dict[str, str]) -> bool:
+        """Situación ya cubierta (≥ cap_seconds): guarda solo 1 de cada `keep_ratio` filas."""
+        if self.coverage is None or self.cap_seconds <= 0:
+            return False
+        sit = self.coverage.situation(sample, ctx)
+        if sit is None or self.coverage.seconds(sit) < self.cap_seconds:
+            return False
+        n = self._cap_counter[sit] = self._cap_counter.get(sit, 0) + 1
+        if n % self.keep_ratio == 0:
+            return False
+        self.skipped_capped += 1
+        return True
+
+    @property
+    def path(self) -> Path | None:
+        return self._rec.path if self._rec is not None else None
+
     def close(self) -> None:
+        if self.coverage is not None:
+            self.coverage.save()
         if self._rec is not None:
             self._rec.close()
             self._rec = None
@@ -159,12 +205,24 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--interval", type=int, default=100, help="ms entre muestras (mín. 50)")
     ap.add_argument("--dir", type=Path, default=None, help="carpeta de salida")
+    ap.add_argument("--full-rows", action="store_true", help="graba todos los campos (3× más grande)")
+    ap.add_argument(
+        "--cap-seconds", type=float, default=0.0,
+        help="situación ya cubierta con N s: guarda 1 de cada 5 filas (0 = nunca aligerar)",
+    )
     args = ap.parse_args(argv)
     if args.interval < 50:
         print("intervalo mínimo 50 ms")
         return 2
 
-    recorder = PlayRecorder(args.dir, interval_ms=args.interval)
+    recorder = PlayRecorder(
+        args.dir,
+        interval_ms=args.interval,
+        context=ContextTags(),
+        slim=not args.full_rows,
+        coverage=CoverageTracker(),
+        cap_seconds=args.cap_seconds,
+    )
     announced_at = -1
     print("[autorecord] grabando; Ctrl+C para parar.", flush=True)
     try:
